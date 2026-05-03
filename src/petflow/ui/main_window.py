@@ -34,6 +34,12 @@ class MainWindow:
         ttk.Button(toolbar, text="New Node", command=self.create_node).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(toolbar, text="Edit Node", command=self.edit_selected_node).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node).pack(
+            side="left", padx=(0, 8)
+        )
         ttk.Button(toolbar, text="Save", command=self.save_graph).pack(
             side="left", padx=(0, 8)
         )
@@ -50,6 +56,7 @@ class MainWindow:
         if dialog.result is None:
             return
         try:
+            x, y = self._next_node_position()
             self.context.graph_service.create_node(
                 title=str(dialog.result["title"]),
                 description=str(dialog.result["description"]),
@@ -57,12 +64,18 @@ class MainWindow:
                 status=dialog.result["status"],
                 priority=int(dialog.result["priority"]),
                 estimated_minutes=int(dialog.result["estimated_minutes"]),
-                x=160,
-                y=140,
+                x=x,
+                y=y,
             )
             self.canvas.redraw()
         except PetFlowError as exc:
             messagebox.showerror("Create node failed", str(exc), parent=self.root)
+
+    def edit_selected_node(self) -> None:
+        self.canvas.edit_selected_node()
+
+    def delete_selected_node(self) -> None:
+        self.canvas.delete_selected_node()
 
     def save_graph(self) -> None:
         try:
@@ -79,6 +92,12 @@ class MainWindow:
             self.canvas.set_context(self.context)
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
+
+    def _next_node_position(self) -> tuple[float, float]:
+        count = len(self.context.graph.nodes)
+        column = count % 4
+        row = count // 4
+        return 120.0 + column * 210.0, 120.0 + row * 120.0
 
     def run(self) -> None:
         self.root.mainloop()

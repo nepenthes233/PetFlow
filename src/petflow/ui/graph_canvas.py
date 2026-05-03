@@ -30,6 +30,8 @@ class GraphCanvas(tk.Canvas):
         self.bind("<Double-Button-1>", self._on_double_click)
         self.bind("<Button-2>", self._on_context_menu)
         self.bind("<Button-3>", self._on_context_menu)
+        self.bind("<Delete>", self._on_delete_key)
+        self.bind("<BackSpace>", self._on_delete_key)
         self.redraw()
 
     def set_context(self, context: AppContext) -> None:
@@ -39,6 +41,25 @@ class GraphCanvas(tk.Canvas):
 
     def redraw(self) -> None:
         self._redraw()
+
+    def selected_node_id(self) -> str | None:
+        return self._selected_node_id
+
+    def select_node(self, node_id: str | None) -> None:
+        if node_id is not None and self.context.graph.get_node(node_id) is None:
+            node_id = None
+        self._selected_node_id = node_id
+        self.context.graph_service.set_current_node(node_id)
+        self.focus_set()
+        self.redraw()
+
+    def edit_selected_node(self) -> None:
+        if self._selected_node_id is not None:
+            self._edit_node(self._selected_node_id)
+
+    def delete_selected_node(self) -> None:
+        if self._selected_node_id is not None:
+            self._delete_node(self._selected_node_id)
 
     def _redraw(self) -> None:
         self.delete("all")
@@ -123,15 +144,14 @@ class GraphCanvas(tk.Canvas):
 
     def _on_click(self, event: tk.Event) -> None:
         node_id = self._node_id_from_event(event)
-        self._selected_node_id = node_id
-        self.context.graph_service.set_current_node(node_id)
+        self._drag_node_id = None
+        self.select_node(node_id)
         if node_id is not None:
             node = self.context.graph.get_node(node_id)
             if node is not None:
                 self._drag_node_id = node_id
                 self._drag_offset_x = float(event.x) - node.x
                 self._drag_offset_y = float(event.y) - node.y
-        self.redraw()
 
     def _on_drag(self, event: tk.Event) -> None:
         if self._drag_node_id is None:
@@ -156,14 +176,16 @@ class GraphCanvas(tk.Canvas):
         node_id = self._node_id_from_event(event)
         if node_id is None:
             return
-        self._selected_node_id = node_id
-        self.redraw()
+        self.select_node(node_id)
         menu = tk.Menu(self, tearoff=False)
         menu.add_command(label="Edit Node", command=lambda: self._edit_node(node_id))
         menu.add_command(
             label="Delete Node", command=lambda: self._delete_node(node_id)
         )
         menu.tk_popup(event.x_root, event.y_root)
+
+    def _on_delete_key(self, _event: tk.Event) -> None:
+        self.delete_selected_node()
 
     def _edit_node(self, node_id: str) -> None:
         node = self.context.graph.get_node(node_id)
