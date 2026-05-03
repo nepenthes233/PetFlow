@@ -1,0 +1,12 @@
+name: petflow
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - tk
+  - requests
+  - pillow
+  - pip:
+      - ruff>=0.6.0
+
