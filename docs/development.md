@@ -1,6 +1,6 @@
 # PetFlow 协作开发规范
 
-本文档用于约束日常开发流程。所有组员在写功能前先阅读本文档和 `docs/architecture.md`。
+本文档用于约束日常开发流程。所有组员在写功能前先阅读本文档、`docs/architecture.md` 和 `docs/roadmap.md`。
 
 ## 1. 环境搭建
 

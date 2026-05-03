@@ -20,6 +20,7 @@ tests/              test placeholders
 ```
 
 The architecture rules are documented in `docs/architecture.md`.
+The implementation roadmap is documented in `docs/roadmap.md`.
 
 ## Run
 
