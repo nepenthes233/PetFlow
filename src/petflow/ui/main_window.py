@@ -46,6 +46,9 @@ class MainWindow:
         ttk.Button(toolbar, text="Delete Edge", command=self.delete_selected_edge).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(toolbar, text="Edit Edge", command=self.edit_selected_edge).pack(
+            side="left", padx=(0, 8)
+        )
         ttk.Button(toolbar, text="Save", command=self.save_graph).pack(
             side="left", padx=(0, 8)
         )
@@ -91,6 +94,9 @@ class MainWindow:
 
     def delete_selected_edge(self) -> None:
         self.canvas.delete_selected_edge()
+
+    def edit_selected_edge(self) -> None:
+        self.canvas.edit_selected_edge()
 
     def save_graph(self) -> None:
         try:

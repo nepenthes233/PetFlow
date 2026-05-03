@@ -127,6 +127,13 @@ class GraphService:
         self.graph.remove_edge(edge_id)
         self._publish(EventType.EDGE_REMOVED, {"edge_id": edge_id})
 
+    def update_edge(self, edge_id: str, **changes: object) -> Edge:
+        if "type" in changes and not isinstance(changes["type"], EdgeType):
+            changes["type"] = EdgeType(str(changes["type"]))
+        edge = self.graph.update_edge(edge_id, **changes)
+        self._publish(EventType.EDGE_UPDATED, {"edge_id": edge_id})
+        return edge
+
     def set_current_node(self, node_id: str | None) -> None:
         if node_id is not None:
             self.graph.get_node(node_id)

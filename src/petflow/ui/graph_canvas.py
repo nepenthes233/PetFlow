@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
 
 from petflow.app.app_context import AppContext
 from petflow.domain.entities import Edge, Node
 from petflow.domain.enums import EdgeType, NodeStatus, NodeType
 from petflow.domain.exceptions import PetFlowError
-from petflow.ui.dialogs import NodeDialog
+from petflow.ui.dialogs import EdgeDialog, NodeDialog
 
 
 class GraphCanvas(tk.Canvas):
@@ -86,6 +86,10 @@ class GraphCanvas(tk.Canvas):
     def delete_selected_edge(self) -> None:
         if self._selected_edge_id is not None:
             self._delete_edge(self._selected_edge_id)
+
+    def edit_selected_edge(self) -> None:
+        if self._selected_edge_id is not None:
+            self._edit_edge(self._selected_edge_id)
 
     def _redraw(self) -> None:
         self.delete("all")
@@ -256,6 +260,9 @@ class GraphCanvas(tk.Canvas):
             self.redraw()
             menu = tk.Menu(self, tearoff=False)
             menu.add_command(
+                label="Edit Edge", command=lambda: self._edit_edge(edge_id)
+            )
+            menu.add_command(
                 label="Delete Edge", command=lambda: self._delete_edge(edge_id)
             )
             menu.add_command(label="Cancel Edge Mode", command=self.cancel_edge_mode)
@@ -319,6 +326,24 @@ class GraphCanvas(tk.Canvas):
         except PetFlowError as exc:
             messagebox.showerror("Delete edge failed", str(exc), parent=self)
 
+    def _edit_edge(self, edge_id: str) -> None:
+        edge = self.context.graph.get_edge(edge_id)
+        if edge is None:
+            return
+        dialog = EdgeDialog(self, edge)
+        self.wait_window(dialog)
+        if dialog.result is None:
+            return
+        try:
+            self.context.graph_service.update_edge(
+                edge_id,
+                type=dialog.result["type"],
+                label=str(dialog.result["label"]),
+            )
+            self.redraw()
+        except PetFlowError as exc:
+            messagebox.showerror("Edit edge failed", str(exc), parent=self)
+
     def _node_id_from_event(self, event: tk.Event) -> str | None:
         item = self.find_withtag("current")
         if not item:
@@ -339,19 +364,16 @@ class GraphCanvas(tk.Canvas):
             return
         if self._edge_start_node_id == node_id:
             return
-        edge_type = simpledialog.askstring(
-            "Edge type",
-            "dependency / routine / recommendation / trigger",
-            parent=self,
-        )
-        if edge_type is None:
+        dialog = EdgeDialog(self)
+        self.wait_window(dialog)
+        if dialog.result is None:
             self.cancel_edge_mode()
             return
         try:
             self.context.graph_service.create_edge(
                 self._edge_start_node_id,
                 node_id,
-                EdgeType(edge_type.strip().lower()),
+                dialog.result["type"],
             )
             self._selected_edge_id = None
             self.cancel_edge_mode()
