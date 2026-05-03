@@ -5,6 +5,7 @@ from petflow.app.id_generator import IdGenerator
 from petflow.domain.entities import Edge, Node
 from petflow.domain.enums import EdgeType, EventType, NodeStatus, NodeType
 from petflow.domain.events import DomainEvent
+from petflow.domain.exceptions import GraphValidationError
 from petflow.domain.graph import GraphModel
 
 
@@ -25,17 +26,67 @@ class GraphService:
         node_type: NodeType = NodeType.TASK,
         x: float = 100.0,
         y: float = 100.0,
+        description: str = "",
+        status: NodeStatus = NodeStatus.TODO,
+        priority: int = 3,
+        estimated_minutes: int = 30,
     ) -> Node:
+        self._validate_node_input(title, priority, estimated_minutes)
         node = Node(
             id=self.id_generator.node_id(),
             type=node_type,
-            title=title,
+            title=title.strip(),
+            description=description.strip(),
+            status=status,
+            priority=priority,
+            estimated_minutes=estimated_minutes,
             x=x,
             y=y,
         )
         self.graph.add_node(node)
         self._publish(EventType.NODE_ADDED, {"node_id": node.id})
         return node
+
+    def update_node(self, node_id: str, **changes: object) -> Node:
+        current = self.graph.get_node(node_id)
+        if current is None:
+            raise GraphValidationError(f"Missing node: {node_id}")
+        title = str(changes.get("title", current.title))
+        priority = int(changes.get("priority", current.priority))
+        estimated_minutes = int(
+            changes.get("estimated_minutes", current.estimated_minutes)
+        )
+        self._validate_node_input(title, priority, estimated_minutes)
+        if "title" in changes:
+            changes["title"] = title.strip()
+        if "description" in changes:
+            changes["description"] = str(changes["description"]).strip()
+        node = self.graph.update_node(node_id, **changes)
+        self._publish(EventType.NODE_UPDATED, {"node_id": node_id, "field": "detail"})
+        return node
+
+    def rename_node(self, node_id: str, title: str) -> Node:
+        return self.update_node(node_id, title=title)
+
+    def update_node_detail(
+        self,
+        node_id: str,
+        title: str,
+        description: str,
+        node_type: NodeType,
+        status: NodeStatus,
+        priority: int,
+        estimated_minutes: int,
+    ) -> Node:
+        return self.update_node(
+            node_id,
+            title=title,
+            description=description,
+            type=node_type,
+            status=status,
+            priority=priority,
+            estimated_minutes=estimated_minutes,
+        )
 
     def update_node_status(self, node_id: str, status: NodeStatus) -> Node:
         node = self.graph.update_node(node_id, status=status)
@@ -88,3 +139,13 @@ class GraphService:
             DomainEvent(type=event_type, source="graph_service", payload=payload)
         )
 
+    @staticmethod
+    def _validate_node_input(
+        title: str, priority: int, estimated_minutes: int
+    ) -> None:
+        if not title.strip():
+            raise GraphValidationError("Node title cannot be empty.")
+        if priority < 1 or priority > 5:
+            raise GraphValidationError("Node priority must be between 1 and 5.")
+        if estimated_minutes < 0:
+            raise GraphValidationError("Estimated minutes cannot be negative.")

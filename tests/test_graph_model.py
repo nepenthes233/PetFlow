@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from petflow.domain import DependencyCycleError, Edge, EdgeType, GraphModel, Node, NodeType
+from petflow.domain import (
+    DependencyCycleError,
+    Edge,
+    EdgeType,
+    GraphModel,
+    Node,
+    NodeType,
+)
 
 
 class GraphModelTest(unittest.TestCase):

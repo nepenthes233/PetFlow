@@ -6,7 +6,6 @@ from collections.abc import Callable
 from petflow.domain.enums import EventType
 from petflow.domain.events import DomainEvent
 
-
 EventHandler = Callable[[DomainEvent], None]
 
 
@@ -20,4 +19,3 @@ class EventBus:
     def publish(self, event: DomainEvent) -> None:
         for handler in list(self._handlers.get(event.type, [])):
             handler(event)
-

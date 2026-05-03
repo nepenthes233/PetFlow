@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from petflow.domain.entities import Node
 from petflow.domain.enums import EdgeType, NodeStatus, NodeType
 from petflow.domain.graph import GraphModel
-from petflow.domain.entities import Node
 
 
 class RecommendationEngine:

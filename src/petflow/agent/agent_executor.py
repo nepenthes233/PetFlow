@@ -28,6 +28,7 @@ class AgentExecutor:
                 self.graph_service.create_edge(
                     source=source,
                     target=target,
-                    edge_type=EdgeType(edge_data.get("type", EdgeType.DEPENDENCY.value)),
+                    edge_type=EdgeType(
+                        edge_data.get("type", EdgeType.DEPENDENCY.value)
+                    ),
                 )
-
