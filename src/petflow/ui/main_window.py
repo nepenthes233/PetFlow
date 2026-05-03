@@ -40,10 +40,19 @@ class MainWindow:
         ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(toolbar, text="Create Edge", command=self.begin_edge_mode).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Delete Edge", command=self.delete_selected_edge).pack(
+            side="left", padx=(0, 8)
+        )
         ttk.Button(toolbar, text="Save", command=self.save_graph).pack(
             side="left", padx=(0, 8)
         )
         ttk.Button(toolbar, text="Load", command=self.load_graph).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Sample", command=self.load_sample_graph).pack(
             side="left", padx=(0, 8)
         )
 
@@ -77,6 +86,12 @@ class MainWindow:
     def delete_selected_node(self) -> None:
         self.canvas.delete_selected_node()
 
+    def begin_edge_mode(self) -> None:
+        self.canvas.begin_edge_mode()
+
+    def delete_selected_edge(self) -> None:
+        self.canvas.delete_selected_edge()
+
     def save_graph(self) -> None:
         try:
             self.context.storage_service.save_graph(
@@ -92,6 +107,15 @@ class MainWindow:
             self.canvas.set_context(self.context)
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
+
+    def load_sample_graph(self) -> None:
+        try:
+            sample_path = DEFAULT_GRAPH_PATH.parent / "sample_graph.json"
+            graph = self.context.storage_service.load_graph(sample_path)
+            self.context = AppContext.create(graph)
+            self.canvas.set_context(self.context)
+        except PetFlowError as exc:
+            messagebox.showerror("Sample load failed", str(exc), parent=self.root)
 
     def _next_node_position(self) -> tuple[float, float]:
         count = len(self.context.graph.nodes)

@@ -46,6 +46,13 @@ class StorageServiceTest(unittest.TestCase):
         self.assertEqual(loaded_first.title, "Design model")
         self.assertEqual(loaded_first.status, NodeStatus.DONE)
         self.assertEqual(loaded_first.x, 120)
+        self.assertEqual(len(loaded.edges), 1)
+        edge = next(iter(loaded.edges.values()))
+        self.assertEqual(edge.type, EdgeType.DEPENDENCY)
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 if __name__ == "__main__":
