@@ -6,9 +6,10 @@ from tkinter import filedialog, messagebox, ttk
 
 from petflow.app.app_context import AppContext
 from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
-from petflow.domain.enums import NodeStatus
+from petflow.domain.enums import NodeStatus, PetStateType
 from petflow.domain.exceptions import PetFlowError
 from petflow.system.clipboard_watcher import ClipboardWatcher
+from petflow.system.focus_monitor import FocusMonitor
 from petflow.ui.agent_dialog import AgentDialog
 from petflow.ui.dialogs import NodeDialog
 from petflow.ui.graph_canvas import GraphCanvas
@@ -22,6 +23,7 @@ class MainWindow:
         self.graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
         self.context = AppContext.create(self.graph)
         self.clipboard_watcher = ClipboardWatcher()
+        self.focus_monitor = FocusMonitor()
         self.focus_started_at: datetime | None = None
         self.status_message = "Ready"
         self.status_after_id: str | None = None
@@ -413,6 +415,21 @@ class MainWindow:
         self.context.graph.workspace.focus_mode = enabled
         if enabled:
             self.focus_started_at = datetime.now()
+            current_node = self.context.graph.get_node(
+                self.context.graph.workspace.current_node_id or ""
+            )
+            if current_node is None:
+                self.context.graph.pet.state = PetStateType.ANGRY
+                self.context.graph.pet.speech = "Select a focus node first."
+                self.context.graph.pet.visible = True
+                self.context.graph.pet.touch()
+                self.canvas.redraw()
+            else:
+                self.context.pet_service.move_to_node(
+                    current_node.id,
+                    speech=f"Focus: {current_node.title}",
+                )
+                self.canvas.redraw()
             self._set_status("Focus mode: on")
         else:
             self.focus_started_at = None
@@ -455,6 +472,9 @@ class MainWindow:
             parts.append(f"Current: {current_node.title}")
         if self.context.graph.workspace.focus_mode:
             parts.append(f"Focus: {self._focus_elapsed_text()}")
+            window_title = self.focus_monitor.current_window_title()
+            if window_title:
+                parts.append(f"Window: {window_title[:32]}")
         else:
             parts.append("Focus: off")
         return " | ".join(parts)

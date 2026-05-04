@@ -17,11 +17,17 @@ class PetView:
     ) -> None:
         self.canvas = canvas
         self.to_screen = to_screen or (lambda x, y: (x, y))
+        self._display_x: float | None = None
+        self._display_y: float | None = None
+        self._after_id: str | None = None
 
     def draw(self, pet: PetState) -> None:
         if not pet.visible:
             return
-        x, y = self.to_screen(pet.x or 40.0, pet.y or 40.0)
+        target_x = pet.x or 40.0
+        target_y = pet.y or 40.0
+        display_x, display_y = self._display_position(target_x, target_y)
+        x, y = self.to_screen(display_x, display_y)
         fill = self._fill_for_state(pet.state)
         outline = "#334155"
 
@@ -75,6 +81,33 @@ class PetView:
         )
         if pet.speech:
             self._draw_bubble(x + 52, y - 6, pet.speech)
+
+    def _display_position(self, target_x: float, target_y: float) -> tuple[float, float]:
+        if self._display_x is None or self._display_y is None:
+            self._display_x = target_x
+            self._display_y = target_y
+            return target_x, target_y
+        dx = target_x - self._display_x
+        dy = target_y - self._display_y
+        if abs(dx) < 1.0 and abs(dy) < 1.0:
+            self._display_x = target_x
+            self._display_y = target_y
+            return target_x, target_y
+        self._display_x += dx * 0.35
+        self._display_y += dy * 0.35
+        self._schedule_redraw()
+        return self._display_x, self._display_y
+
+    def _schedule_redraw(self) -> None:
+        if self._after_id is not None:
+            return
+        self._after_id = self.canvas.after(30, self._redraw_canvas)
+
+    def _redraw_canvas(self) -> None:
+        self._after_id = None
+        redraw = getattr(self.canvas, "redraw", None)
+        if callable(redraw):
+            redraw()
 
     def _draw_bubble(self, x: float, y: float, text: str) -> None:
         display_text = self._fit_text(text, 34)
