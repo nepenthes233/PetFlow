@@ -14,6 +14,7 @@ class AgentSettings:
     api_key: str = ""
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o-mini"
+    wire_api: str = "chat_completions"
     mock_mode: bool = False
 
     @classmethod
@@ -35,6 +36,7 @@ class AgentSettings:
             api_key=str(data.get("api_key", "")),
             base_url=str(data.get("base_url", "https://api.openai.com/v1")),
             model=str(data.get("model", "gpt-4o-mini")),
+            wire_api=str(data.get("wire_api", "chat_completions")),
             mock_mode=bool(data.get("mock_mode", False)),
         )
 
@@ -54,5 +56,6 @@ class AgentSettings:
             "api_key": self.api_key,
             "base_url": self.base_url,
             "model": self.model,
+            "wire_api": self.wire_api,
             "mock_mode": self.mock_mode,
         }

@@ -14,6 +14,7 @@ class AgentSettingsTest(unittest.TestCase):
             api_key="test-key",
             base_url="https://api.example.com/v1",
             model="demo-model",
+            wire_api="responses",
             mock_mode=True,
         )
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -25,6 +26,7 @@ class AgentSettingsTest(unittest.TestCase):
         self.assertEqual(loaded.api_key, "test-key")
         self.assertEqual(loaded.base_url, "https://api.example.com/v1")
         self.assertEqual(loaded.model, "demo-model")
+        self.assertEqual(loaded.wire_api, "responses")
         self.assertTrue(loaded.mock_mode)
 
     def test_client_uses_settings(self) -> None:
@@ -32,6 +34,7 @@ class AgentSettingsTest(unittest.TestCase):
             api_key="settings-key",
             base_url="https://api.example.com/v1",
             model="demo-model",
+            wire_api="responses",
             mock_mode=False,
         )
 
@@ -40,6 +43,7 @@ class AgentSettingsTest(unittest.TestCase):
         self.assertEqual(client.api_key, "settings-key")
         self.assertEqual(client.base_url, "https://api.example.com/v1")
         self.assertEqual(client.model, "demo-model")
+        self.assertEqual(client.wire_api, "responses")
         self.assertFalse(client.mock_mode)
 
 

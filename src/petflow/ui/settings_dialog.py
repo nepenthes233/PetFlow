@@ -22,6 +22,7 @@ class SettingsDialog(tk.Toplevel):
         self._api_key_var = tk.StringVar(value=settings.api_key)
         self._base_url_var = tk.StringVar(value=settings.base_url)
         self._model_var = tk.StringVar(value=settings.model)
+        self._wire_api_var = tk.StringVar(value=settings.wire_api)
         self._mock_mode_var = tk.BooleanVar(value=settings.mock_mode)
         self._error_var = tk.StringVar(value="")
 
@@ -52,18 +53,27 @@ class SettingsDialog(tk.Toplevel):
             row=2, column=1, sticky="ew", pady=(0, 8)
         )
 
+        ttk.Label(body, text="Wire API").grid(row=3, column=0, sticky="w", pady=(0, 8))
+        ttk.Combobox(
+            body,
+            textvariable=self._wire_api_var,
+            values=["chat_completions", "responses"],
+            state="readonly",
+            width=46,
+        ).grid(row=3, column=1, sticky="ew", pady=(0, 8))
+
         ttk.Checkbutton(
             body,
             text="Use mock mode",
             variable=self._mock_mode_var,
-        ).grid(row=3, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=4, column=1, sticky="w", pady=(0, 8))
 
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=4, column=0, columnspan=2, sticky="w"
+            row=5, column=0, columnspan=2, sticky="w"
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=5, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=6, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -77,6 +87,7 @@ class SettingsDialog(tk.Toplevel):
             api_key=self._api_key_var.get().strip(),
             base_url=self._base_url_var.get().strip() or "https://api.openai.com/v1",
             model=self._model_var.get().strip() or "gpt-4o-mini",
+            wire_api=self._wire_api_var.get() or "chat_completions",
             mock_mode=bool(self._mock_mode_var.get()),
         )
 

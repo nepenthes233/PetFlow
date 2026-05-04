@@ -148,6 +148,49 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertEqual(payload["model"], "test-model")
         self.assertEqual(payload["response_format"], {"type": "json_object"})
 
+    def test_client_parses_responses_json_response(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {
+                    "output": [
+                        {
+                            "content": [
+                                {
+                                    "text": '{"nodes":[{"id":"n1","title":"Task"}],"edges":[]}'
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            base_url="https://api.example.com/v1",
+            model="test-model",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        proposal = client.complete_json("build a graph")
+
+        self.assertEqual(proposal["nodes"][0]["title"], "Task")
+        self.assertEqual(captured["args"][0], "https://api.example.com/v1/responses")
+        payload = captured["kwargs"]["json"]
+        assert isinstance(payload, dict)
+        self.assertEqual(payload["model"], "test-model")
+        self.assertEqual(payload["text"], {"format": {"type": "json_object"}})
+
     def test_executor_applies_proposal(self) -> None:
         context = AppContext.create()
         executor = AgentExecutor(context.graph_service)
