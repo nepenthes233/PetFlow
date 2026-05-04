@@ -27,7 +27,7 @@ class MainWindow:
         self.focus_started_at: datetime | None = None
         self.status_message = "Ready"
         self.status_after_id: str | None = None
-        self.toolbar: ttk.Frame | None = None
+        self.toolbar: tk.Frame | None = None
         self.toolbar_items: list[tuple[tk.Widget, tuple[int, int], str]] = []
         self.toolbar_layout_after_id: str | None = None
         self.toolbar_layout_width: int | None = None
@@ -43,8 +43,9 @@ class MainWindow:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        toolbar = ttk.Frame(self.root, padding=8)
+        toolbar = tk.Frame(self.root, width=self.config.window_width, height=80)
         toolbar.grid(row=0, column=0, sticky="ew")
+        toolbar.grid_propagate(False)
         self.toolbar = toolbar
 
         self._add_toolbar_item(
@@ -165,7 +166,7 @@ class MainWindow:
     ) -> None:
         self.toolbar_items.append((widget, padx, sticky))
 
-    def _schedule_toolbar_layout(self, event: tk.Event[ttk.Frame] | None = None) -> None:
+    def _schedule_toolbar_layout(self, event: tk.Event[tk.Frame] | None = None) -> None:
         if event is not None and self.toolbar_layout_width == event.width:
             return
         if self.toolbar_layout_after_id is not None:
@@ -183,9 +184,12 @@ class MainWindow:
         if width <= 1:
             width = self.config.window_width
         self.toolbar_layout_width = width
-        available_width = max(160, width - 16)
+        margin_x = 8
+        margin_y = 8
+        row_gap = 6
+        available_width = max(160, width - margin_x * 2)
         self.recommendation_label.configure(
-            wraplength=max(140, min(360, available_width // 2))
+            wraplength=max(120, min(320, available_width // 3))
         )
 
         rows: list[list[tuple[tk.Widget, tuple[int, int], str]]] = [[]]
@@ -199,17 +203,24 @@ class MainWindow:
             row_width += item_width
 
         for widget, _padx, _sticky in self.toolbar_items:
-            widget.grid_forget()
+            widget.place_forget()
 
+        y = margin_y
         for row_index, row_items in enumerate(rows):
-            for column_index, (widget, padx, sticky) in enumerate(row_items):
-                widget.grid(
-                    row=row_index,
-                    column=column_index,
-                    sticky=sticky,
-                    padx=padx,
-                    pady=(0, 6),
+            row_height = max(widget.winfo_reqheight() for widget, _padx, _sticky in row_items)
+            x = margin_x
+            for widget, padx, _sticky in row_items:
+                x += padx[0]
+                widget.place(
+                    x=x,
+                    y=y,
+                    width=widget.winfo_reqwidth(),
+                    height=widget.winfo_reqheight(),
                 )
+                x += widget.winfo_reqwidth() + padx[1]
+            y += row_height + row_gap
+        self.toolbar.configure(width=width, height=y + margin_y - row_gap)
+        self.root.rowconfigure(0, minsize=y + margin_y - row_gap)
 
     def create_node(self) -> None:
         dialog = NodeDialog(self.root)
@@ -317,6 +328,7 @@ class MainWindow:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
             self.recommendation_var.set("Recommended: -")
+            self._schedule_toolbar_layout()
             messagebox.showinfo("Recommend Next", "No available node.", parent=self.root)
             return
         reason = self.context.recommendation_engine.recommend_reason(
@@ -327,6 +339,7 @@ class MainWindow:
         self.context.pet_service.react_to_recommendation(node)
         self.canvas.redraw()
         self.recommendation_var.set(f"Recommended: {node.title} | {reason}")
+        self._schedule_toolbar_layout()
         self._set_status(f"Recommended: {node.title}")
         messagebox.showinfo(
             "Recommend Next",
@@ -439,12 +452,14 @@ class MainWindow:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
             self.recommendation_var.set("Recommended: -")
+            self._schedule_toolbar_layout()
             return
         reason = self.context.recommendation_engine.recommend_reason(
             self.context.graph,
             node,
         )
         self.recommendation_var.set(f"Recommended: {node.title} | {reason}")
+        self._schedule_toolbar_layout()
 
     def _sync_pet_to_recommendation(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
