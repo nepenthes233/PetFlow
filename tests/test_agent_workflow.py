@@ -215,7 +215,50 @@ class AgentWorkflowTest(unittest.TestCase):
         payload = captured["kwargs"]["json"]
         assert isinstance(payload, dict)
         self.assertEqual(payload["model"], "test-model")
+        self.assertEqual(payload["input"], "build a graph")
+        self.assertIn("Return only valid JSON", payload["instructions"])
         self.assertEqual(payload["text"], {"format": {"type": "json_object"}})
+        self.assertFalse(payload["background"])
+        self.assertFalse(payload["store"])
+
+    def test_client_retries_responses_with_plain_payload_when_output_empty(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        class FakeResponse:
+            def __init__(self, data: dict[str, object]) -> None:
+                self._data = data
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return self._data
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            payload = kwargs["json"]
+            assert isinstance(payload, dict)
+            calls.append(payload)
+            if len(calls) == 1:
+                return FakeResponse(
+                    {
+                        "id": "resp_test",
+                        "status": "completed",
+                        "output": [],
+                    }
+                )
+            return FakeResponse({"output_text": '{"ok": true}'})
+
+        client = AgentClient(
+            api_key="test-key",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        self.assertEqual(client.test_connection(), "Agent API is reachable.")
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("instructions", calls[1])
+        self.assertIn("Return only valid JSON", calls[1]["input"])
 
     def test_client_parses_responses_nested_text_value_response(self) -> None:
         class FakeResponse:

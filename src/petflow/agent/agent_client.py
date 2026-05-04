@@ -13,6 +13,11 @@ from petflow.domain.exceptions import GraphValidationError
 
 HttpPost = Callable[..., object]
 
+AGENT_SYSTEM_INSTRUCTIONS = (
+    "You are PetFlow's planning agent. Return only valid JSON. "
+    "For graph proposals, return an object with nodes and edges arrays."
+)
+
 
 @dataclass(slots=True)
 class AgentClient:
@@ -94,10 +99,7 @@ class AgentClient:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are PetFlow's planning agent. Return only valid JSON. "
-                        "For graph proposals, return an object with nodes and edges arrays."
-                    ),
+                    "content": AGENT_SYSTEM_INSTRUCTIONS,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -127,21 +129,28 @@ class AgentClient:
         if not self.api_key:
             return self._mock_response(prompt)
         url = self._responses_url()
-        payload = {
-            "model": self.model or "gpt-4o-mini",
-            "input": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are PetFlow's planning agent. Return only valid JSON. "
-                        "For graph proposals, return an object with nodes and edges arrays."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "text": {"format": {"type": "json_object"}},
-        }
+        last_missing_content_error: GraphValidationError | None = None
         post = self.http_post or requests.post
+        for payload in self._responses_payloads(prompt):
+            data = self._post_json(url, payload, post)
+            try:
+                content = self._extract_responses_content(data)
+            except GraphValidationError as exc:
+                if not self._is_missing_responses_content(data):
+                    raise
+                last_missing_content_error = exc
+                continue
+            return self.parse_json(content)
+        if last_missing_content_error is not None:
+            raise last_missing_content_error
+        raise GraphValidationError("Agent API response missing response content.")
+
+    def _post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        post: HttpPost,
+    ) -> dict[str, Any]:
         try:
             response = post(
                 url,
@@ -158,8 +167,28 @@ class AgentClient:
             raise GraphValidationError(f"Agent API request failed: {exc}") from exc
         except ValueError as exc:
             raise GraphValidationError("Agent API response is not valid JSON.") from exc
-        content = self._extract_responses_content(data)
-        return self.parse_json(content)
+        if not isinstance(data, dict):
+            raise GraphValidationError("Agent API response must be a JSON object.")
+        return data
+
+    def _responses_payloads(self, prompt: str) -> list[dict[str, Any]]:
+        model = self.model or "gpt-4o-mini"
+        return [
+            {
+                "model": model,
+                "instructions": AGENT_SYSTEM_INSTRUCTIONS,
+                "input": prompt,
+                "text": {"format": {"type": "json_object"}},
+                "background": False,
+                "store": False,
+            },
+            {
+                "model": model,
+                "input": f"{AGENT_SYSTEM_INSTRUCTIONS}\n\n{prompt}",
+                "background": False,
+                "store": False,
+            },
+        ]
 
     def _chat_completions_url(self) -> str:
         base_url = (self.base_url or "https://api.openai.com/v1").rstrip("/")
@@ -235,6 +264,19 @@ class AgentClient:
         raise GraphValidationError(
             f"Agent API response missing response content. {summary}"
         )
+
+    @staticmethod
+    def _is_missing_responses_content(data: dict[str, Any]) -> bool:
+        if isinstance(data.get("error"), dict):
+            return False
+        if AgentClient._looks_like_agent_json(data):
+            return False
+        if AgentClient._find_json_text(data):
+            return False
+        output_text = data.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return False
+        return True
 
     @staticmethod
     def _normalize_json_content(content: str) -> str:
