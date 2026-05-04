@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from petflow.app.app_context import AppContext
+from petflow.ui.agent_dialog import AgentDialog
 from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
 from petflow.domain.enums import NodeStatus
 from petflow.domain.exceptions import PetFlowError
@@ -63,6 +64,9 @@ class MainWindow:
             side="left", padx=(0, 8)
         )
         ttk.Button(toolbar, text="Recommend Next", command=self.recommend_next).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog).pack(
             side="left", padx=(0, 8)
         )
 
@@ -162,6 +166,15 @@ class MainWindow:
             f"Next: {node.title}\nStatus: {node.status.value}\nPriority: P{node.priority}",
             parent=self.root,
         )
+
+    def open_agent_dialog(self, node_id: str | None = None) -> None:
+        dialog = AgentDialog(self.root, self.context, node_id=node_id)
+        self.root.wait_window(dialog)
+        if dialog.result is None:
+            return
+        self.canvas.redraw()
+        self._update_recommendation_label()
+        self._sync_pet_to_recommendation()
 
     def _update_recommendation_label(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)

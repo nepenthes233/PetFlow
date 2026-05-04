@@ -262,6 +262,16 @@ feat: add in-graph pet assistant
 
 ## 7. M5：Agent 能力
 
+当前进展：
+
+- 新增 `AgentProposalValidator`，会校验 nodes / edges 结构和基础字段。
+- `AgentClient` 增加 mock 模式，默认在无 API Key 时返回稳定样例，便于演示。
+- `PromptBuilder` 已覆盖生成图、拆分节点和复盘三类 prompt。
+- `AgentExecutor` 会先校验 proposal，再通过 `GraphService` 落图。
+- 已增加 Agent 工作流测试，覆盖 proposal 校验、mock client、executor 落图。
+- 已新增 `AgentDialog`，支持 Generate Graph / Split Node 两种模式，并显示 JSON 预览。
+- 主窗口和节点右键菜单已接入 Agent 入口。
+
 ### 目标
 
 完成项目智能化亮点：自然语言生成任务图和节点拆分。

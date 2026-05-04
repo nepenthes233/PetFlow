@@ -305,6 +305,11 @@ class GraphCanvas(tk.Canvas):
         menu.add_command(
             label="Delete Node", command=lambda: self._delete_node(node_id)
         )
+        menu.add_separator()
+        menu.add_command(
+            label="Agent Split",
+            command=lambda: self._open_agent_split(node_id),
+        )
         menu.tk_popup(event.x_root, event.y_root)
 
     def _on_delete_key(self, _event: tk.Event) -> None:
@@ -421,6 +426,15 @@ class GraphCanvas(tk.Canvas):
             self.redraw()
         except PetFlowError as exc:
             messagebox.showerror("Create edge failed", str(exc), parent=self)
+
+    def _open_agent_split(self, node_id: str) -> None:
+        main_window = self.master
+        while main_window is not None and not hasattr(main_window, "open_agent_dialog"):
+            main_window = getattr(main_window, "master", None)
+        if main_window is None:
+            messagebox.showerror("Agent", "Agent dialog is unavailable.", parent=self)
+            return
+        main_window.open_agent_dialog(node_id=node_id)
 
     @staticmethod
     def _edge_style(edge: Edge) -> tuple[str, tuple[int, ...] | None]:
