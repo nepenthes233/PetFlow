@@ -94,6 +94,32 @@ class AgentWorkflowTest(unittest.TestCase):
 
         self.assertEqual(client.test_connection(), "Agent API is reachable.")
 
+    def test_client_connection_test_uses_responses_api(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {"output_text": '{"ok": true}'}
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            base_url="https://api.example.com/v1",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        self.assertEqual(client.test_connection(), "Agent API is reachable.")
+        self.assertEqual(captured["args"][0], "https://api.example.com/v1/responses")
+
     def test_client_reads_image_api_key_fallback(self) -> None:
         with patch.dict(
             os.environ,
@@ -190,6 +216,44 @@ class AgentWorkflowTest(unittest.TestCase):
         assert isinstance(payload, dict)
         self.assertEqual(payload["model"], "test-model")
         self.assertEqual(payload["text"], {"format": {"type": "json_object"}})
+
+    def test_client_parses_responses_nested_text_value_response(self) -> None:
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {
+                    "output": [
+                        {
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": {
+                                        "value": (
+                                            '{"nodes":[{"id":"n1","title":"Task"}],'
+                                            '"edges":[]}'
+                                        )
+                                    },
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        proposal = client.complete_json("build a graph")
+
+        self.assertEqual(proposal["nodes"][0]["title"], "Task")
 
     def test_executor_applies_proposal(self) -> None:
         context = AppContext.create()

@@ -61,9 +61,11 @@ class AgentClient:
         if self._use_mock():
             self._mock_response("connection test")
             return "Mock mode is available."
-        response = self._complete_chat_json(
-            'Return {"ok": true} as JSON to confirm the API is reachable.'
-        )
+        prompt = 'Return {"ok": true} as JSON to confirm the API is reachable.'
+        if self.wire_api == "responses":
+            response = self._complete_responses_json(prompt)
+        else:
+            response = self._complete_chat_json(prompt)
         if response.get("ok") is True:
             return "Agent API is reachable."
         return "Agent API responded with valid JSON."
@@ -199,6 +201,16 @@ class AgentClient:
                     text = content_item.get("text")
                     if isinstance(text, str) and text.strip():
                         return text
+                    if isinstance(text, dict):
+                        value = text.get("value")
+                        if isinstance(value, str) and value.strip():
+                            return value
+                    output_text = content_item.get("output_text")
+                    if isinstance(output_text, str) and output_text.strip():
+                        return output_text
+        choices = data.get("choices")
+        if isinstance(choices, list):
+            return AgentClient._extract_message_content({"choices": choices})
         raise GraphValidationError("Agent API response missing response content.")
 
     @staticmethod
