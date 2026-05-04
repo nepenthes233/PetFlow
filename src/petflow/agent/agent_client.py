@@ -130,17 +130,28 @@ class AgentClient:
             return self._mock_response(prompt)
         url = self._responses_url()
         last_missing_content_error: GraphValidationError | None = None
+        last_stream_error: GraphValidationError | None = None
         post = self.http_post or requests.post
-        for payload in self._responses_payloads(prompt):
+        payloads = self._responses_payloads(prompt)
+        for payload in payloads:
             data = self._post_json(url, payload, post)
             try:
                 content = self._extract_responses_content(data)
             except GraphValidationError as exc:
-                if not self._is_missing_responses_content(data):
+                if not self._should_retry_responses_stream(data):
                     raise
                 last_missing_content_error = exc
                 continue
             return self.parse_json(content)
+        for payload in payloads:
+            try:
+                content = self._post_responses_stream(url, payload, post)
+            except GraphValidationError as exc:
+                last_stream_error = exc
+                continue
+            return self.parse_json(content)
+        if last_stream_error is not None:
+            raise last_stream_error
         if last_missing_content_error is not None:
             raise last_missing_content_error
         raise GraphValidationError("Agent API response missing response content.")
@@ -170,6 +181,88 @@ class AgentClient:
         if not isinstance(data, dict):
             raise GraphValidationError("Agent API response must be a JSON object.")
         return data
+
+    def _post_responses_stream(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        post: HttpPost,
+    ) -> str:
+        stream_payload = dict(payload)
+        stream_payload["stream"] = True
+        try:
+            response = post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream",
+                },
+                json=stream_payload,
+                timeout=self.timeout_seconds,
+                stream=True,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise GraphValidationError(f"Agent API request failed: {exc}") from exc
+
+        deltas: list[str] = []
+        completed_content: str | None = None
+        last_data: dict[str, Any] | None = None
+        event_name = ""
+        try:
+            lines = response.iter_lines(decode_unicode=True)
+        except AttributeError as exc:
+            raise GraphValidationError("Agent API stream response is not readable.") from exc
+        for raw_line in lines:
+            if isinstance(raw_line, bytes):
+                line = raw_line.decode("utf-8", errors="replace")
+            else:
+                line = str(raw_line)
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("event:"):
+                event_name = line[6:].strip()
+                continue
+            if not line.startswith("data:"):
+                continue
+            payload_text = line[5:].strip()
+            if not payload_text or payload_text == "[DONE]":
+                continue
+            try:
+                event_data = json.loads(payload_text)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event_data, dict):
+                continue
+            last_data = event_data
+            event_type = str(event_data.get("type") or event_name)
+            if event_type.endswith(".delta"):
+                delta = event_data.get("delta")
+                if isinstance(delta, str):
+                    deltas.append(delta)
+                continue
+            response_data = event_data.get("response")
+            if isinstance(response_data, dict):
+                try:
+                    completed_content = self._extract_responses_content(response_data)
+                except GraphValidationError:
+                    pass
+            json_text = self._find_json_text(event_data)
+            if json_text:
+                completed_content = json_text
+        content = "".join(deltas).strip()
+        if content:
+            return content
+        if completed_content:
+            return completed_content
+        if last_data is not None:
+            summary = self._response_summary(last_data)
+            raise GraphValidationError(
+                f"Agent API stream response missing response content. {summary}"
+            )
+        raise GraphValidationError("Agent API stream response missing response content.")
 
     def _responses_payloads(self, prompt: str) -> list[dict[str, Any]]:
         model = self.model or "gpt-4o-mini"
@@ -277,6 +370,17 @@ class AgentClient:
         if isinstance(output_text, str) and output_text.strip():
             return False
         return True
+
+    @staticmethod
+    def _should_retry_responses_stream(data: dict[str, Any]) -> bool:
+        if isinstance(data.get("error"), dict):
+            return False
+        output = data.get("output")
+        if output is None:
+            return True
+        if isinstance(output, list) and not output:
+            return True
+        return False
 
     @staticmethod
     def _normalize_json_content(content: str) -> str:

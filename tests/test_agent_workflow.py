@@ -260,6 +260,53 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertNotIn("instructions", calls[1])
         self.assertIn("Return only valid JSON", calls[1]["input"])
 
+    def test_client_falls_back_to_responses_stream_when_output_empty(self) -> None:
+        stream_flags: list[bool] = []
+
+        class FakeResponse:
+            def __init__(
+                self,
+                data: dict[str, object] | None = None,
+                lines: list[str] | None = None,
+            ) -> None:
+                self._data = data or {}
+                self._lines = lines or []
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return self._data
+
+            def iter_lines(self, decode_unicode: bool = False) -> list[str]:
+                return self._lines
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            is_stream = bool(kwargs.get("stream"))
+            stream_flags.append(is_stream)
+            if not is_stream:
+                return FakeResponse({"id": "resp_test", "status": "completed", "output": []})
+            return FakeResponse(
+                lines=[
+                    "event: response.output_text.delta",
+                    'data: {"type":"response.output_text.delta","delta":"{\\"ok\\":"}',
+                    "event: response.output_text.delta",
+                    'data: {"type":"response.output_text.delta","delta":" true}"}',
+                    "event: response.completed",
+                    'data: {"type":"response.completed","response":{"status":"completed"}}',
+                ]
+            )
+
+        client = AgentClient(
+            api_key="test-key",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        self.assertEqual(client.test_connection(), "Agent API is reachable.")
+        self.assertIn(True, stream_flags)
+
     def test_client_parses_responses_nested_text_value_response(self) -> None:
         class FakeResponse:
             def raise_for_status(self) -> None:
