@@ -211,7 +211,7 @@ class AgentClient:
         last_data: dict[str, Any] | None = None
         event_name = ""
         try:
-            lines = response.iter_lines(decode_unicode=True)
+            lines = response.iter_lines(decode_unicode=False)
         except AttributeError as exc:
             raise GraphValidationError("Agent API stream response is not readable.") from exc
         for raw_line in lines:

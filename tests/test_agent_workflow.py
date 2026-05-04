@@ -267,7 +267,7 @@ class AgentWorkflowTest(unittest.TestCase):
             def __init__(
                 self,
                 data: dict[str, object] | None = None,
-                lines: list[str] | None = None,
+                lines: list[bytes] | None = None,
             ) -> None:
                 self._data = data or {}
                 self._lines = lines or []
@@ -278,7 +278,8 @@ class AgentWorkflowTest(unittest.TestCase):
             def json(self) -> dict[str, object]:
                 return self._data
 
-            def iter_lines(self, decode_unicode: bool = False) -> list[str]:
+            def iter_lines(self, decode_unicode: bool = False) -> list[bytes]:
+                self.decode_unicode = decode_unicode
                 return self._lines
 
         def fake_post(*args: object, **kwargs: object) -> FakeResponse:
@@ -288,12 +289,12 @@ class AgentWorkflowTest(unittest.TestCase):
                 return FakeResponse({"id": "resp_test", "status": "completed", "output": []})
             return FakeResponse(
                 lines=[
-                    "event: response.output_text.delta",
-                    'data: {"type":"response.output_text.delta","delta":"{\\"ok\\":"}',
-                    "event: response.output_text.delta",
-                    'data: {"type":"response.output_text.delta","delta":" true}"}',
-                    "event: response.completed",
-                    'data: {"type":"response.completed","response":{"status":"completed"}}',
+                    b"event: response.output_text.delta",
+                    b'data: {"type":"response.output_text.delta","delta":"{\\"ok\\":"}',
+                    b"event: response.output_text.delta",
+                    b'data: {"type":"response.output_text.delta","delta":" true}"}',
+                    b"event: response.completed",
+                    b'data: {"type":"response.completed","response":{"status":"completed"}}',
                 ]
             )
 
@@ -306,6 +307,38 @@ class AgentWorkflowTest(unittest.TestCase):
 
         self.assertEqual(client.test_connection(), "Agent API is reachable.")
         self.assertIn(True, stream_flags)
+
+    def test_client_decodes_responses_stream_as_utf8(self) -> None:
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {"id": "resp_test", "status": "completed", "output": []}
+
+            def iter_lines(self, decode_unicode: bool = False) -> list[bytes]:
+                self.decode_unicode = decode_unicode
+                event = (
+                    'data: {"type":"response.output_text.delta",'
+                    '"delta":"{\\"summary\\": \\"下一步\\", \\"highlights\\": []}"}'
+                )
+                return [b"event: response.output_text.delta", event.encode("utf-8")]
+
+        responses = [FakeResponse(), FakeResponse(), FakeResponse()]
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            return responses.pop(0)
+
+        client = AgentClient(
+            api_key="test-key",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        response = client.complete_json("review")
+
+        self.assertEqual(response["summary"], "下一步")
 
     def test_client_parses_responses_nested_text_value_response(self) -> None:
         class FakeResponse:
