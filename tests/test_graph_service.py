@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
 
 from petflow.app import AppContext
 from petflow.domain import EdgeType, GraphValidationError, NodeStatus, NodeType
+from petflow.domain.enums import RepeatType
 
 
 class GraphServiceTest(unittest.TestCase):
@@ -55,6 +57,46 @@ class GraphServiceTest(unittest.TestCase):
         self.assertEqual(updated.type, NodeType.ROUTINE)
         self.assertEqual(updated.status, NodeStatus.PAUSED)
 
+    def test_update_node_detail_routes_status_change_through_history(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Task")
+
+        updated = context.graph_service.update_node_detail(
+            node.id,
+            title="Task",
+            description="",
+            node_type=NodeType.TASK,
+            status=NodeStatus.DONE,
+            priority=3,
+            estimated_minutes=30,
+        )
+
+        self.assertEqual(updated.status, NodeStatus.DONE)
+        self.assertIsNotNone(updated.completed_at)
+        self.assertEqual(context.graph.history[-2]["action"], "node.status_changed")
+
+    def test_create_node_accepts_routine_fields(self) -> None:
+        context = AppContext.create()
+
+        node = context.graph_service.create_node(
+            title="Weekly review",
+            node_type=NodeType.ROUTINE,
+            repeat_type=RepeatType.WEEKLY,
+            next_due_at="2026-05-05T00:00:00+00:00",
+            streak=2,
+        )
+
+        self.assertEqual(node.repeat_type, RepeatType.WEEKLY)
+        self.assertEqual(node.next_due_at, "2026-05-05T00:00:00+00:00")
+        self.assertEqual(node.streak, 2)
+
+    def test_update_node_rejects_direct_status_change(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Task")
+
+        with self.assertRaises(GraphValidationError):
+            context.graph_service.update_node(node.id, status=NodeStatus.DONE)
+
     def test_create_edge_stores_type_and_trimmed_label(self) -> None:
         context = AppContext.create()
         first = context.graph_service.create_node(title="First")
@@ -94,6 +136,41 @@ class GraphServiceTest(unittest.TestCase):
 
         with self.assertRaises(GraphValidationError):
             context.graph_service.create_edge(first.id, second.id, label="x" * 81)
+
+    def test_update_node_status_records_history_and_completion_time(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Task")
+
+        updated = context.graph_service.update_node_status(node.id, NodeStatus.DONE)
+
+        self.assertEqual(updated.status, NodeStatus.DONE)
+        self.assertIsNotNone(updated.completed_at)
+        self.assertEqual(context.graph.history[-2]["action"], "node.status_changed")
+        self.assertEqual(context.graph.history[-1]["action"], "node.completed")
+
+    def test_routine_done_updates_streak_and_next_due_at(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(
+            title="Daily review",
+            node_type=NodeType.ROUTINE,
+        )
+        context.graph_service.update_node(
+            node.id,
+            repeat_type=RepeatType.DAILY,
+            repeat_interval=2,
+            streak=3,
+        )
+
+        updated = context.graph_service.update_node_status(node.id, NodeStatus.DONE)
+
+        self.assertEqual(updated.streak, 4)
+        self.assertIsNotNone(updated.last_completed_at)
+        self.assertIsNotNone(updated.next_due_at)
+        assert updated.last_completed_at is not None
+        assert updated.next_due_at is not None
+        completed_at = datetime.fromisoformat(updated.last_completed_at)
+        next_due_at = datetime.fromisoformat(updated.next_due_at)
+        self.assertEqual((next_due_at - completed_at).days, 2)
 
 
 if __name__ == "__main__":

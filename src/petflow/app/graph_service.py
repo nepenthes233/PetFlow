@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from petflow.app.event_bus import EventBus
 from petflow.app.id_generator import IdGenerator
 from petflow.domain.entities import Edge, Node
-from petflow.domain.enums import EdgeType, EventType, NodeStatus, NodeType
+from petflow.domain.enums import EdgeType, EventType, NodeStatus, NodeType, RepeatType
 from petflow.domain.events import DomainEvent
 from petflow.domain.exceptions import GraphValidationError
 from petflow.domain.graph import GraphModel
+from petflow.domain.routine import next_due_at
 
 
 class GraphService:
@@ -30,8 +33,11 @@ class GraphService:
         status: NodeStatus = NodeStatus.TODO,
         priority: int = 3,
         estimated_minutes: int = 30,
+        repeat_type: RepeatType = RepeatType.NONE,
+        next_due_at: str | None = None,
+        streak: int = 0,
     ) -> Node:
-        self._validate_node_input(title, priority, estimated_minutes)
+        self._validate_node_input(title, priority, estimated_minutes, streak)
         node = Node(
             id=self.id_generator.node_id(),
             type=node_type,
@@ -42,6 +48,9 @@ class GraphService:
             estimated_minutes=estimated_minutes,
             x=x,
             y=y,
+            repeat_type=repeat_type,
+            next_due_at=next_due_at,
+            streak=streak,
         )
         self.graph.add_node(node)
         self._publish(EventType.NODE_ADDED, {"node_id": node.id})
@@ -51,16 +60,26 @@ class GraphService:
         current = self.graph.get_node(node_id)
         if current is None:
             raise GraphValidationError(f"Missing node: {node_id}")
+        if "status" in changes:
+            raise GraphValidationError(
+                "Use update_node_status() to change node status."
+            )
         title = str(changes.get("title", current.title))
         priority = int(changes.get("priority", current.priority))
         estimated_minutes = int(
             changes.get("estimated_minutes", current.estimated_minutes)
         )
-        self._validate_node_input(title, priority, estimated_minutes)
+        streak = int(changes.get("streak", current.streak))
+        self._validate_node_input(title, priority, estimated_minutes, streak)
         if "title" in changes:
             changes["title"] = title.strip()
         if "description" in changes:
             changes["description"] = str(changes["description"]).strip()
+        if "repeat_type" in changes:
+            changes["repeat_type"] = self._coerce_repeat_type(changes["repeat_type"])
+        if "next_due_at" in changes:
+            next_due_value = changes["next_due_at"]
+            changes["next_due_at"] = str(next_due_value).strip() or None
         node = self.graph.update_node(node_id, **changes)
         self._publish(EventType.NODE_UPDATED, {"node_id": node_id, "field": "detail"})
         return node
@@ -77,19 +96,65 @@ class GraphService:
         status: NodeStatus,
         priority: int,
         estimated_minutes: int,
+        repeat_type: RepeatType | None = None,
+        next_due_at: str | None = None,
+        streak: int | None = None,
     ) -> Node:
-        return self.update_node(
+        current = self.graph.get_node(node_id)
+        if current is None:
+            raise GraphValidationError(f"Missing node: {node_id}")
+        changes: dict[str, object] = {
+            "title": title,
+            "description": description,
+            "type": node_type,
+            "priority": priority,
+            "estimated_minutes": estimated_minutes,
+        }
+        if repeat_type is not None:
+            changes["repeat_type"] = repeat_type
+        if next_due_at is not None:
+            changes["next_due_at"] = next_due_at
+        if streak is not None:
+            changes["streak"] = streak
+        node = self.update_node(
             node_id,
-            title=title,
-            description=description,
-            type=node_type,
-            status=status,
-            priority=priority,
-            estimated_minutes=estimated_minutes,
+            **changes,
         )
+        if current.status != status:
+            node = self.update_node_status(node_id, status)
+        return node
 
     def update_node_status(self, node_id: str, status: NodeStatus) -> Node:
-        node = self.graph.update_node(node_id, status=status)
+        current = self.graph.get_node(node_id)
+        if current is None:
+            raise GraphValidationError(f"Missing node: {node_id}")
+        previous_status = current.status
+        changes: dict[str, object] = {"status": status}
+        if status == NodeStatus.DONE:
+            completed_at = datetime.now(timezone.utc)
+            completed_at_value = completed_at.isoformat()
+            changes["completed_at"] = completed_at_value
+            if current.type == NodeType.ROUTINE:
+                changes["last_completed_at"] = completed_at_value
+                changes["streak"] = current.streak + 1
+                next_due = next_due_at(
+                    completed_at,
+                    current.repeat_type,
+                    current.repeat_interval,
+                )
+                changes["next_due_at"] = next_due.isoformat() if next_due else None
+        elif previous_status == NodeStatus.DONE:
+            changes["completed_at"] = None
+
+        node = self.graph.update_node(node_id, **changes)
+        self.graph.record_history(
+            "node.status_changed",
+            {
+                "node_id": node_id,
+                "from": previous_status.value,
+                "to": status.value,
+            },
+        )
         if status == NodeStatus.DONE:
             self.graph.record_history("node.completed", {"node_id": node_id})
         self._publish(
@@ -159,7 +224,7 @@ class GraphService:
 
     @staticmethod
     def _validate_node_input(
-        title: str, priority: int, estimated_minutes: int
+        title: str, priority: int, estimated_minutes: int, streak: int = 0
     ) -> None:
         if not title.strip():
             raise GraphValidationError("Node title cannot be empty.")
@@ -167,6 +232,8 @@ class GraphService:
             raise GraphValidationError("Node priority must be between 1 and 5.")
         if estimated_minutes < 0:
             raise GraphValidationError("Estimated minutes cannot be negative.")
+        if streak < 0:
+            raise GraphValidationError("Routine streak cannot be negative.")
 
     @staticmethod
     def _coerce_edge_type(value: object) -> EdgeType:
@@ -187,3 +254,12 @@ class GraphService:
         if label is None:
             return ""
         return str(label).strip()
+
+    @staticmethod
+    def _coerce_repeat_type(value: object) -> RepeatType:
+        if isinstance(value, RepeatType):
+            return value
+        try:
+            return RepeatType(str(value))
+        except ValueError as exc:
+            raise GraphValidationError(f"Invalid repeat type: {value}") from exc

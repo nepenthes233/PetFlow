@@ -68,6 +68,17 @@ NodeStatus.DONE
 
 以后新增规则时优先放到 Domain 层，而不是写在 Canvas 点击事件里。
 
+Routine 的时间规则集中放在 `domain/routine.py`。状态流转由
+`GraphService.update_node_status()` 统一处理：节点标记为 done 时写入完成时间；
+Routine 节点同时更新 `last_completed_at`、`next_due_at` 和 `streak`。
+
+推荐规则集中放在 `services/recommendation_engine.py`。推荐引擎必须遵守 Dependency
+前置完成规则，并跳过 done、blocked 节点；UI 只能请求推荐结果，不能在界面层自行实现推荐算法。
+
+桌宠响应集中放在 `services/pet_service.py` 和 `ui/pet_view.py`。`PetService`
+负责监听图事件、更新 `PetState` 和发布 `PET_MOVED`；`PetView` 只负责在 Canvas
+上绘制桌宠和气泡，不承载推荐或状态流转规则。
+
 ## 5. Application 层
 
 `GraphService` 是 UI 和 Agent 修改图的统一入口。

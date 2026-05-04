@@ -6,6 +6,7 @@ from pathlib import Path
 
 from petflow.app import AppContext
 from petflow.domain import EdgeType, NodeStatus, NodeType
+from petflow.domain.enums import PetStateType
 from petflow.services import StorageService
 
 
@@ -55,6 +56,27 @@ class StorageServiceTest(unittest.TestCase):
         edge = next(iter(loaded.edges.values()))
         self.assertEqual(edge.type, EdgeType.DEPENDENCY)
         self.assertEqual(edge.label, "blocks")
+
+    def test_save_and_load_pet_state(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Current task", x=200, y=220)
+        context.pet_service.move_to_node(
+            node.id,
+            state=PetStateType.THINK,
+            speech="Try this next",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "graph.json"
+            storage = StorageService()
+            storage.save_graph(context.graph, path)
+
+            loaded = storage.load_graph(path)
+
+        self.assertEqual(loaded.pet.current_node_id, node.id)
+        self.assertEqual(loaded.pet.state, PetStateType.THINK)
+        self.assertEqual(loaded.pet.speech, "Try this next")
+        self.assertGreater(loaded.pet.x, node.x)
 
 
 if __name__ == "__main__":

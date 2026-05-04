@@ -28,8 +28,8 @@
 M0 基础框架                 已完成
 M1 图编辑主链路             节点绘制、拖拽、创建、编辑、删除
 M2 边编辑与持久化闭环        连边、删边、保存、加载、样例数据
-M3 语义图与推荐              节点/边类型、状态流转、依赖规则、下一步推荐
-M4 桌宠图内交互              桌宠绘制、移动、气泡、任务完成响应
+M3 语义图与推荐              基础状态流转、依赖推荐、Routine 到期权重已完成
+M4 桌宠图内交互              图内桌宠绘制、气泡、完成任务响应已完成
 M5 Agent 能力                生成任务图、拆分节点、结果预览、复盘
 M6 系统增强与最终打磨        剪贴板、附件、专注模式、UI 美化、演示脚本
 ```
@@ -148,6 +148,14 @@ feat: complete graph persistence workflow
 
 ## 5. M3：语义图与推荐
 
+当前进展：
+
+- `RecommendationEngine` 已支持 Dependency 前置检查、done/blocked 跳过、doing 加权、priority 加权、Routine 到期加权。
+- `GraphService.update_node_status()` 已记录状态变化历史，标记 done 时写入 `completed_at`。
+- Routine 节点标记 done 时会更新 `last_completed_at`、`next_due_at` 和 `streak`，当前支持 daily、weekly、monthly 的基础日期计算。
+- UI 已支持节点右键状态切换、工具栏 `Mark Done` 和 `Recommend Next`。
+- 已增加推荐算法和状态流转单元测试。
+
 ### 目标
 
 让任务图不仅能画，还能表达真实工作流。
@@ -200,6 +208,14 @@ feat: add semantic graph states and recommendation
 ```
 
 ## 6. M4：桌宠图内交互
+
+当前进展：
+
+- 新增 `PetService`，监听节点状态变化事件。
+- 节点标记 done 后，桌宠会移动到推荐节点旁，并显示下一步提示。
+- `Recommend Next` 会让桌宠进入 think 状态并移动到推荐节点旁。
+- 新增 `PetView`，用 Canvas 图形绘制桌宠和气泡。
+- `PetState` 已随项目 JSON 保存和加载。
 
 ### 目标
 
@@ -421,4 +437,3 @@ feat: add system enhancements and demo polish
 ```
 
 如果时间不足，优先砍选做功能，不能砍任务图编辑、保存加载、依赖规则和桌宠响应。
-

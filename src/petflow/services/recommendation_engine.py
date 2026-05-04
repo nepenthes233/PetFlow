@@ -3,6 +3,7 @@ from __future__ import annotations
 from petflow.domain.entities import Node
 from petflow.domain.enums import EdgeType, NodeStatus, NodeType
 from petflow.domain.graph import GraphModel
+from petflow.domain.routine import is_routine_due
 
 
 class RecommendationEngine:
@@ -10,7 +11,7 @@ class RecommendationEngine:
         candidates = [
             node
             for node in graph.nodes.values()
-            if node.status != NodeStatus.DONE and self._dependencies_done(graph, node)
+            if self._is_candidate(graph, node)
         ]
         if not candidates:
             return None
@@ -20,14 +21,23 @@ class RecommendationEngine:
     def _score(self, graph: GraphModel, node: Node) -> int:
         score = node.priority * 10
         if node.status == NodeStatus.DOING:
-            score += 20
+            score += 35
+        if node.status == NodeStatus.PAUSED:
+            score -= 10
         if node.type == NodeType.ROUTINE:
-            score += 15
+            score += 10
+            if is_routine_due(node.next_due_at):
+                score += 40
         if node.type == NodeType.REWARD:
             score += 5
         if graph.workspace.current_node_id == node.id:
             score += 10
         return score
+
+    def _is_candidate(self, graph: GraphModel, node: Node) -> bool:
+        if node.status in {NodeStatus.DONE, NodeStatus.BLOCKED}:
+            return False
+        return self._dependencies_done(graph, node)
 
     def _dependencies_done(self, graph: GraphModel, node: Node) -> bool:
         for predecessor in graph.predecessors(node.id, [EdgeType.DEPENDENCY]):

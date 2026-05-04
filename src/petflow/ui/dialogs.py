@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from petflow.domain.entities import Edge, Node
-from petflow.domain.enums import EdgeType, NodeStatus, NodeType
+from petflow.domain.enums import EdgeType, NodeStatus, NodeType, RepeatType
 
 
 class NodeDialog(tk.Toplevel):
@@ -24,6 +24,11 @@ class NodeDialog(tk.Toplevel):
         )
         self._priority_var = tk.IntVar(value=node.priority if node else 3)
         self._estimated_var = tk.IntVar(value=node.estimated_minutes if node else 30)
+        self._repeat_type_var = tk.StringVar(
+            value=(node.repeat_type.value if node else RepeatType.NONE.value)
+        )
+        self._next_due_var = tk.StringVar(value=node.next_due_at if node else "")
+        self._streak_var = tk.IntVar(value=node.streak if node else 0)
         self._error_var = tk.StringVar(value="")
 
         self._build_ui()
@@ -85,12 +90,35 @@ class NodeDialog(tk.Toplevel):
             width=8,
         ).grid(row=5, column=1, sticky="w", pady=(0, 8))
 
+        ttk.Label(body, text="Repeat").grid(row=6, column=0, sticky="w", pady=(0, 8))
+        ttk.Combobox(
+            body,
+            textvariable=self._repeat_type_var,
+            values=[repeat_type.value for repeat_type in RepeatType],
+            state="readonly",
+            width=34,
+        ).grid(row=6, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(body, text="Next Due").grid(row=7, column=0, sticky="w", pady=(0, 8))
+        ttk.Entry(body, textvariable=self._next_due_var, width=36).grid(
+            row=7, column=1, sticky="ew", pady=(0, 8)
+        )
+
+        ttk.Label(body, text="Streak").grid(row=8, column=0, sticky="w", pady=(0, 8))
+        ttk.Spinbox(
+            body,
+            from_=0,
+            to=9999,
+            textvariable=self._streak_var,
+            width=8,
+        ).grid(row=8, column=1, sticky="w", pady=(0, 8))
+
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=6, column=0, columnspan=2, sticky="w", pady=(4, 0)
+            row=9, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=7, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=10, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -102,12 +130,15 @@ class NodeDialog(tk.Toplevel):
             description = self._description_var.get().strip()
             priority = int(self._priority_var.get())
             estimated_minutes = int(self._estimated_var.get())
+            streak = int(self._streak_var.get())
             if not title:
                 raise ValueError("Title cannot be empty.")
             if priority < 1 or priority > 5:
                 raise ValueError("Priority must be between 1 and 5.")
             if estimated_minutes < 0:
                 raise ValueError("Estimate cannot be negative.")
+            if streak < 0:
+                raise ValueError("Streak cannot be negative.")
             self.result = {
                 "title": title,
                 "description": description,
@@ -115,6 +146,9 @@ class NodeDialog(tk.Toplevel):
                 "status": NodeStatus(self._status_var.get()),
                 "priority": priority,
                 "estimated_minutes": estimated_minutes,
+                "repeat_type": RepeatType(self._repeat_type_var.get()),
+                "next_due_at": self._next_due_var.get().strip(),
+                "streak": streak,
             }
             self.destroy()
         except ValueError as exc:

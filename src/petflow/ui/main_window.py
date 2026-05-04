@@ -5,6 +5,7 @@ from tkinter import messagebox, ttk
 
 from petflow.app.app_context import AppContext
 from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
+from petflow.domain.enums import NodeStatus
 from petflow.domain.exceptions import PetFlowError
 from petflow.ui.dialogs import NodeDialog
 from petflow.ui.graph_canvas import GraphCanvas
@@ -37,6 +38,9 @@ class MainWindow:
         ttk.Button(toolbar, text="Edit Node", command=self.edit_selected_node).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(toolbar, text="Mark Done", command=self.mark_selected_done).pack(
+            side="left", padx=(0, 8)
+        )
         ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node).pack(
             side="left", padx=(0, 8)
         )
@@ -58,6 +62,14 @@ class MainWindow:
         ttk.Button(toolbar, text="Sample", command=self.load_sample_graph).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(toolbar, text="Recommend Next", command=self.recommend_next).pack(
+            side="left", padx=(0, 8)
+        )
+
+        self.recommendation_var = tk.StringVar(value="Recommended: -")
+        ttk.Label(toolbar, textvariable=self.recommendation_var).pack(
+            side="left", padx=(16, 0)
+        )
 
         self.canvas = GraphCanvas(self.root, self.context)
         self.canvas.grid(row=1, column=0, sticky="nsew")
@@ -76,6 +88,9 @@ class MainWindow:
                 status=dialog.result["status"],
                 priority=int(dialog.result["priority"]),
                 estimated_minutes=int(dialog.result["estimated_minutes"]),
+                repeat_type=dialog.result["repeat_type"],
+                next_due_at=str(dialog.result["next_due_at"]) or None,
+                streak=int(dialog.result["streak"]),
                 x=x,
                 y=y,
             )
@@ -85,6 +100,11 @@ class MainWindow:
 
     def edit_selected_node(self) -> None:
         self.canvas.edit_selected_node()
+
+    def mark_selected_done(self) -> None:
+        self.canvas.mark_selected_node_status(NodeStatus.DONE)
+        self._update_recommendation_label()
+        self.canvas.redraw()
 
     def delete_selected_node(self) -> None:
         self.canvas.delete_selected_node()
@@ -111,6 +131,8 @@ class MainWindow:
             graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
             self.context = AppContext.create(graph)
             self.canvas.set_context(self.context)
+            self._update_recommendation_label()
+            self._sync_pet_to_recommendation()
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
 
@@ -120,8 +142,38 @@ class MainWindow:
             graph = self.context.storage_service.load_graph(sample_path)
             self.context = AppContext.create(graph)
             self.canvas.set_context(self.context)
+            self._update_recommendation_label()
+            self._sync_pet_to_recommendation()
         except PetFlowError as exc:
             messagebox.showerror("Sample load failed", str(exc), parent=self.root)
+
+    def recommend_next(self) -> None:
+        node = self.context.recommendation_engine.recommend_next(self.context.graph)
+        if node is None:
+            self.recommendation_var.set("Recommended: -")
+            messagebox.showinfo("Recommend Next", "No available node.", parent=self.root)
+            return
+        self.canvas.select_node(node.id)
+        self.context.pet_service.react_to_recommendation(node)
+        self.canvas.redraw()
+        self.recommendation_var.set(f"Recommended: {node.title}")
+        messagebox.showinfo(
+            "Recommend Next",
+            f"Next: {node.title}\nStatus: {node.status.value}\nPriority: P{node.priority}",
+            parent=self.root,
+        )
+
+    def _update_recommendation_label(self) -> None:
+        node = self.context.recommendation_engine.recommend_next(self.context.graph)
+        if node is None:
+            self.recommendation_var.set("Recommended: -")
+            return
+        self.recommendation_var.set(f"Recommended: {node.title}")
+
+    def _sync_pet_to_recommendation(self) -> None:
+        node = self.context.recommendation_engine.recommend_next(self.context.graph)
+        self.context.pet_service.react_to_recommendation(node)
+        self.canvas.redraw()
 
     def _next_node_position(self) -> tuple[float, float]:
         count = len(self.context.graph.nodes)

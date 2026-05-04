@@ -8,6 +8,7 @@ from petflow.domain.entities import Edge, Node
 from petflow.domain.enums import EdgeType, NodeStatus, NodeType
 from petflow.domain.exceptions import PetFlowError
 from petflow.ui.dialogs import EdgeDialog, NodeDialog
+from petflow.ui.pet_view import PetView
 
 
 class GraphCanvas(tk.Canvas):
@@ -28,6 +29,7 @@ class GraphCanvas(tk.Canvas):
         self._drag_offset_y = 0.0
         self._edge_mode = False
         self._edge_start_node_id: str | None = None
+        self._pet_view = PetView(self)
 
         self.bind("<Button-1>", self._on_click)
         self.bind("<B1-Motion>", self._on_drag)
@@ -68,6 +70,10 @@ class GraphCanvas(tk.Canvas):
         if self._selected_node_id is not None:
             self._edit_node(self._selected_node_id)
 
+    def mark_selected_node_status(self, status: NodeStatus) -> None:
+        if self._selected_node_id is not None:
+            self._mark_node_status(self._selected_node_id, status)
+
     def delete_selected_node(self) -> None:
         if self._selected_node_id is not None:
             self._delete_node(self._selected_node_id)
@@ -106,6 +112,7 @@ class GraphCanvas(tk.Canvas):
             self._draw_edge(edge)
         for node in self.context.graph.nodes.values():
             self._draw_node(node)
+        self._pet_view.draw(self.context.graph.pet)
 
     def _draw_empty_hint(self) -> None:
         self.create_text(
@@ -273,6 +280,28 @@ class GraphCanvas(tk.Canvas):
         self.select_node(node_id)
         menu = tk.Menu(self, tearoff=False)
         menu.add_command(label="Edit Node", command=lambda: self._edit_node(node_id))
+        menu.add_separator()
+        menu.add_command(
+            label="Mark Todo",
+            command=lambda: self._mark_node_status(node_id, NodeStatus.TODO),
+        )
+        menu.add_command(
+            label="Mark Doing",
+            command=lambda: self._mark_node_status(node_id, NodeStatus.DOING),
+        )
+        menu.add_command(
+            label="Mark Done",
+            command=lambda: self._mark_node_status(node_id, NodeStatus.DONE),
+        )
+        menu.add_command(
+            label="Mark Blocked",
+            command=lambda: self._mark_node_status(node_id, NodeStatus.BLOCKED),
+        )
+        menu.add_command(
+            label="Mark Paused",
+            command=lambda: self._mark_node_status(node_id, NodeStatus.PAUSED),
+        )
+        menu.add_separator()
         menu.add_command(
             label="Delete Node", command=lambda: self._delete_node(node_id)
         )
@@ -301,10 +330,21 @@ class GraphCanvas(tk.Canvas):
                 status=dialog.result["status"],
                 priority=int(dialog.result["priority"]),
                 estimated_minutes=int(dialog.result["estimated_minutes"]),
+                repeat_type=dialog.result["repeat_type"],
+                next_due_at=str(dialog.result["next_due_at"]),
+                streak=int(dialog.result["streak"]),
             )
             self.redraw()
         except PetFlowError as exc:
             messagebox.showerror("Edit node failed", str(exc), parent=self)
+
+    def _mark_node_status(self, node_id: str, status: NodeStatus) -> None:
+        try:
+            self.context.graph_service.update_node_status(node_id, status)
+            self._selected_node_id = node_id
+            self.redraw()
+        except PetFlowError as exc:
+            messagebox.showerror("Update status failed", str(exc), parent=self)
 
     def _delete_node(self, node_id: str) -> None:
         if not messagebox.askyesno("Delete node", "Delete this node?", parent=self):
