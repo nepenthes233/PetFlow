@@ -79,6 +79,18 @@ class MainWindow:
             ttk.Button(toolbar, text="Sample", command=self.load_sample_graph)
         )
         self._add_toolbar_item(
+            ttk.Button(toolbar, text="Layout", command=self.layout_graph)
+        )
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Zoom In", command=self.zoom_in)
+        )
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Zoom Out", command=self.zoom_out)
+        )
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Reset View", command=self.reset_view)
+        )
+        self._add_toolbar_item(
             ttk.Button(toolbar, text="Recommend Next", command=self.recommend_next)
         )
         self._add_toolbar_item(
@@ -266,6 +278,23 @@ class MainWindow:
             self._set_status("Loaded sample graph")
         except PetFlowError as exc:
             messagebox.showerror("Sample load failed", str(exc), parent=self.root)
+
+    def layout_graph(self) -> None:
+        self.context.graph_layout_service.apply_grid_layout(self.context.graph_service)
+        self.canvas.redraw()
+        self._set_status("Graph layout refreshed")
+
+    def zoom_in(self) -> None:
+        self.canvas.zoom_in()
+        self._set_status(f"Zoom: {self.context.graph.workspace.zoom:.0%}")
+
+    def zoom_out(self) -> None:
+        self.canvas.zoom_out()
+        self._set_status(f"Zoom: {self.context.graph.workspace.zoom:.0%}")
+
+    def reset_view(self) -> None:
+        self.canvas.reset_view()
+        self._set_status("View reset")
 
     def recommend_next(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)

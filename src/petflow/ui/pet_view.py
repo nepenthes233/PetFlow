@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 
 from petflow.domain.entities import PetState
 from petflow.domain.enums import PetStateType
 
+CoordinateTransform = Callable[[float, float], tuple[float, float]]
+
 
 class PetView:
-    def __init__(self, canvas: tk.Canvas) -> None:
+    def __init__(
+        self,
+        canvas: tk.Canvas,
+        to_screen: CoordinateTransform | None = None,
+    ) -> None:
         self.canvas = canvas
+        self.to_screen = to_screen or (lambda x, y: (x, y))
 
     def draw(self, pet: PetState) -> None:
         if not pet.visible:
             return
-        x = pet.x or 40.0
-        y = pet.y or 40.0
+        x, y = self.to_screen(pet.x or 40.0, pet.y or 40.0)
         fill = self._fill_for_state(pet.state)
         outline = "#334155"
 

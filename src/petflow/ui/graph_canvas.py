@@ -27,13 +27,23 @@ class GraphCanvas(tk.Canvas):
         self._drag_node_id: str | None = None
         self._drag_offset_x = 0.0
         self._drag_offset_y = 0.0
+        self._pan_start_x = 0.0
+        self._pan_start_y = 0.0
+        self._pan_origin_x = 0.0
+        self._pan_origin_y = 0.0
+        self._panning = False
         self._edge_mode = False
         self._edge_start_node_id: str | None = None
-        self._pet_view = PetView(self)
+        self._pet_view = PetView(self, self._to_screen)
 
         self.bind("<Button-1>", self._on_click)
-        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<Shift-Button-1>", self._on_pan_start)
+        self.bind("<Shift-B1-Motion>", self._on_pan_drag)
         self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<MouseWheel>", self._on_mouse_wheel)
+        self.bind("<Button-4>", self._on_mouse_wheel)
+        self.bind("<Button-5>", self._on_mouse_wheel)
         self.bind("<Double-Button-1>", self._on_double_click)
         self.bind("<Button-2>", self._on_context_menu)
         self.bind("<Button-3>", self._on_context_menu)
@@ -47,6 +57,7 @@ class GraphCanvas(tk.Canvas):
         self._selected_edge_id = None
         self._edge_mode = False
         self._edge_start_node_id = None
+        self._panning = False
         self.redraw()
 
     def redraw(self) -> None:
@@ -97,6 +108,19 @@ class GraphCanvas(tk.Canvas):
         if self._selected_edge_id is not None:
             self._edit_edge(self._selected_edge_id)
 
+    def zoom_in(self) -> None:
+        self._set_zoom(self.context.graph.workspace.zoom * 1.15)
+
+    def zoom_out(self) -> None:
+        self._set_zoom(self.context.graph.workspace.zoom / 1.15)
+
+    def reset_view(self) -> None:
+        workspace = self.context.graph.workspace
+        workspace.zoom = 1.0
+        workspace.pan_x = 0.0
+        workspace.pan_y = 0.0
+        self.redraw()
+
     def _redraw(self) -> None:
         self.delete("all")
         self._node_items.clear()
@@ -115,17 +139,19 @@ class GraphCanvas(tk.Canvas):
         self._pet_view.draw(self.context.graph.pet)
 
     def _draw_empty_hint(self) -> None:
+        x, y = self._to_screen(80, 40)
         self.create_text(
-            80,
-            40,
+            x,
+            y,
             text="PetFlow task graph",
             anchor="w",
             fill="#334155",
             font=("Arial", 16, "bold"),
         )
+        x, y = self._to_screen(80, 72)
         self.create_text(
-            80,
-            72,
+            x,
+            y,
             text="Click New Node to start building your workflow.",
             anchor="w",
             fill="#64748b",
@@ -133,10 +159,8 @@ class GraphCanvas(tk.Canvas):
         )
 
     def _draw_node(self, node: Node) -> None:
-        x1 = node.x
-        y1 = node.y
-        x2 = x1 + self.NODE_WIDTH
-        y2 = y1 + self.NODE_HEIGHT
+        x1, y1 = self._to_screen(node.x, node.y)
+        x2, y2 = self._to_screen(node.x + self.NODE_WIDTH, node.y + self.NODE_HEIGHT)
         fill = self._node_fill(node)
         outline = "#0f172a" if node.id == self._selected_node_id else "#94a3b8"
         width = 2 if node.id == self._selected_node_id else 1
@@ -152,8 +176,8 @@ class GraphCanvas(tk.Canvas):
             tags=("node", f"node:{node.id}"),
         )
         type_text = self.create_text(
-            x1 + 12,
-            y1 + 14,
+            x1 + self._scale(12),
+            y1 + self._scale(14),
             text=node.type.value.upper(),
             anchor="w",
             fill="#475569",
@@ -161,8 +185,8 @@ class GraphCanvas(tk.Canvas):
             tags=("node", f"node:{node.id}"),
         )
         title = self.create_text(
-            x1 + 12,
-            y1 + 38,
+            x1 + self._scale(12),
+            y1 + self._scale(38),
             text=self._fit_text(node.title, 22),
             anchor="w",
             fill="#0f172a",
@@ -170,8 +194,8 @@ class GraphCanvas(tk.Canvas):
             tags=("node", f"node:{node.id}"),
         )
         meta = self.create_text(
-            x1 + 12,
-            y1 + 60,
+            x1 + self._scale(12),
+            y1 + self._scale(60),
             text=f"{node.status.value} | P{node.priority} | {node.estimated_minutes}m",
             anchor="w",
             fill="#475569",
@@ -189,10 +213,11 @@ class GraphCanvas(tk.Canvas):
         if source is None or target is None:
             return
 
-        start_x = source.x + self.NODE_WIDTH
-        start_y = source.y + self.NODE_HEIGHT / 2
-        end_x = target.x
-        end_y = target.y + self.NODE_HEIGHT / 2
+        start_x, start_y = self._to_screen(
+            source.x + self.NODE_WIDTH,
+            source.y + self.NODE_HEIGHT / 2,
+        )
+        end_x, end_y = self._to_screen(target.x, target.y + self.NODE_HEIGHT / 2)
         color, dash = self._edge_style(edge)
         width = 3 if edge.id == self._selected_edge_id else 2
 
@@ -223,6 +248,8 @@ class GraphCanvas(tk.Canvas):
             self._item_to_edge[item] = edge.id
 
     def _on_click(self, event: tk.Event) -> None:
+        if event.state & 0x0001:
+            return
         node_id = self._node_id_from_event(event)
         edge_id = self._edge_id_from_event(event)
         self._drag_node_id = None
@@ -234,15 +261,17 @@ class GraphCanvas(tk.Canvas):
         if node_id is not None:
             node = self.context.graph.get_node(node_id)
             if node is not None:
+                graph_x, graph_y = self._event_graph_position(event)
                 self._drag_node_id = node_id
-                self._drag_offset_x = float(event.x) - node.x
-                self._drag_offset_y = float(event.y) - node.y
+                self._drag_offset_x = graph_x - node.x
+                self._drag_offset_y = graph_y - node.y
 
     def _on_drag(self, event: tk.Event) -> None:
         if self._drag_node_id is None:
             return
-        x = float(event.x) - self._drag_offset_x
-        y = float(event.y) - self._drag_offset_y
+        graph_x, graph_y = self._event_graph_position(event)
+        x = graph_x - self._drag_offset_x
+        y = graph_y - self._drag_offset_y
         self.context.graph_service.move_node(
             self._drag_node_id, max(0.0, x), max(0.0, y)
         )
@@ -250,6 +279,29 @@ class GraphCanvas(tk.Canvas):
 
     def _on_release(self, _event: tk.Event) -> None:
         self._drag_node_id = None
+        self._panning = False
+
+    def _on_pan_start(self, event: tk.Event) -> None:
+        self._panning = True
+        self._drag_node_id = None
+        self._pan_start_x = float(event.x)
+        self._pan_start_y = float(event.y)
+        self._pan_origin_x = self.context.graph.workspace.pan_x
+        self._pan_origin_y = self.context.graph.workspace.pan_y
+
+    def _on_pan_drag(self, event: tk.Event) -> None:
+        if not self._panning:
+            return
+        workspace = self.context.graph.workspace
+        workspace.pan_x = self._pan_origin_x + float(event.x) - self._pan_start_x
+        workspace.pan_y = self._pan_origin_y + float(event.y) - self._pan_start_y
+        self.redraw()
+
+    def _on_mouse_wheel(self, event: tk.Event) -> None:
+        if getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
+            self.zoom_out()
+        else:
+            self.zoom_in()
 
     def _on_double_click(self, event: tk.Event) -> None:
         node_id = self._node_id_from_event(event)
@@ -397,9 +449,21 @@ class GraphCanvas(tk.Canvas):
 
     def _edge_id_from_event(self, event: tk.Event) -> str | None:
         item = self.find_withtag("current")
-        if not item:
-            return None
-        return self._item_to_edge.get(item[0])
+        if item:
+            edge_id = self._item_to_edge.get(item[0])
+            if edge_id is not None:
+                return edge_id
+        radius = 6
+        for item_id in self.find_overlapping(
+            event.x - radius,
+            event.y - radius,
+            event.x + radius,
+            event.y + radius,
+        ):
+            edge_id = self._item_to_edge.get(item_id)
+            if edge_id is not None:
+                return edge_id
+        return None
 
     def _handle_edge_mode_click(self, node_id: str) -> None:
         if self._edge_start_node_id is None:
@@ -435,6 +499,31 @@ class GraphCanvas(tk.Canvas):
             messagebox.showerror("Agent", "Agent dialog is unavailable.", parent=self)
             return
         main_window.open_agent_dialog(node_id=node_id)
+
+    def _set_zoom(self, zoom: float) -> None:
+        self.context.graph.workspace.zoom = min(2.5, max(0.4, zoom))
+        self.redraw()
+
+    def _event_graph_position(self, event: tk.Event) -> tuple[float, float]:
+        return self._to_graph(float(event.x), float(event.y))
+
+    def _to_screen(self, x: float, y: float) -> tuple[float, float]:
+        workspace = self.context.graph.workspace
+        return (
+            x * workspace.zoom + workspace.pan_x,
+            y * workspace.zoom + workspace.pan_y,
+        )
+
+    def _to_graph(self, x: float, y: float) -> tuple[float, float]:
+        workspace = self.context.graph.workspace
+        zoom = workspace.zoom or 1.0
+        return (
+            (x - workspace.pan_x) / zoom,
+            (y - workspace.pan_y) / zoom,
+        )
+
+    def _scale(self, value: float) -> float:
+        return value * self.context.graph.workspace.zoom
 
     @staticmethod
     def _edge_style(edge: Edge) -> tuple[str, tuple[int, ...] | None]:
