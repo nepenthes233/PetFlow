@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil, sqrt
+from typing import TYPE_CHECKING
 
-from petflow.app.graph_service import GraphService
 from petflow.domain.graph import GraphModel
+
+if TYPE_CHECKING:
+    from petflow.app.graph_service import GraphService
 
 
 @dataclass(slots=True)
@@ -29,6 +32,6 @@ class GraphLayoutService:
             )
         return positions
 
-    def apply_grid_layout(self, graph_service: GraphService) -> None:
+    def apply_grid_layout(self, graph_service: "GraphService") -> None:
         for node_id, (x, y) in self.grid_positions(graph_service.graph).items():
             graph_service.move_node(node_id, x, y)

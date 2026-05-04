@@ -1,6 +1,6 @@
 # PetFlow
 
-PetFlow is a Python desktop workflow manager built around a task graph and a desktop pet.
+PetFlow is a Python desktop workflow manager built around a task graph and an in-graph desktop pet.
 
 ## Stack
 
@@ -16,7 +16,7 @@ PetFlow is a Python desktop workflow manager built around a task graph and a des
 src/petflow/        application package
 docs/               design notes
 data/               local graph files
-tests/              test placeholders
+tests/              unit tests
 ```
 
 The architecture rules are documented in `docs/architecture.md`.
@@ -55,8 +55,22 @@ More collaboration rules are documented in `docs/development.md`.
 
 ## Current scope
 
-- Application shell
-- Shared data model
-- JSON storage
-- Basic recommendation service
-- Tkinter main window and canvas placeholder
+- Editable Tkinter Canvas task graph.
+- Node and edge creation, editing, deletion, dragging, save/load.
+- Dependency cycle rejection with Routine / Recommendation / Trigger edge support.
+- Workspace navigation: layout, zoom, pan, reset view.
+- Node detail fields: tags, actual time, resource type/path, checklist, attachments.
+- Local recommendation engine with dependency checks, Routine due weighting, and reasons.
+- In-graph pet assistant with speech bubbles and lightweight movement animation.
+- Agent graph generation and node splitting with mock/API mode and structured preview.
+- Review summary, clipboard capture, resource copy, and focus mode fallback.
+
+## Demo flow
+
+1. Run `PYTHONPATH=src python -m petflow.main`.
+2. Click `Sample` to load `data/sample_graph.json`.
+3. Try `Layout`, zoom, pan, create/edit nodes, and create a Dependency edge.
+4. Mark a node done and click `Recommend Next` to see the reason and pet response.
+5. Use `Agent` to generate or split a task graph; mock mode works without an API key.
+6. Select a Resource node and use `Copy Resource`.
+7. Open `Review` for a local progress summary.

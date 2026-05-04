@@ -2,7 +2,7 @@
   "version": 1,
   "metadata": {
     "name": "PetFlow Demo",
-    "description": "Sample graph for M2",
+    "description": "Sample graph for the final PetFlow demo",
     "schema_version": 1,
     "created_at": null,
     "updated_at": null,
@@ -30,7 +30,7 @@
       "repeat_days": [],
       "repeat_interval": 1,
       "last_completed_at": null,
-      "next_due_at": null,
+      "next_due_at": "2026-05-03T00:00:00+00:00",
       "streak": 0,
       "resource_type": "url",
       "resource_path": "",
@@ -159,6 +159,15 @@
       "target": "node_resource",
       "type": "trigger",
       "label": "reference material",
+      "weight": 1.0,
+      "metadata": {}
+    },
+    {
+      "id": "edge_4",
+      "source": "node_middle",
+      "target": "node_start",
+      "type": "routine",
+      "label": "daily loop",
       "weight": 1.0,
       "metadata": {}
     }

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from petflow.app.event_bus import EventBus
+from typing import TYPE_CHECKING
+
 from petflow.domain.entities import Node, PetState
 from petflow.domain.enums import EventType, NodeStatus, PetStateType
 from petflow.domain.events import DomainEvent
 from petflow.domain.graph import GraphModel
 from petflow.services.recommendation_engine import RecommendationEngine
+
+if TYPE_CHECKING:
+    from petflow.app.event_bus import EventBus
 
 
 class PetService:
@@ -13,7 +17,7 @@ class PetService:
         self,
         graph: GraphModel,
         recommendation_engine: RecommendationEngine,
-        event_bus: EventBus,
+        event_bus: "EventBus",
     ) -> None:
         self.graph = graph
         self.recommendation_engine = recommendation_engine
