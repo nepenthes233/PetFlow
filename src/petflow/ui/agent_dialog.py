@@ -25,7 +25,7 @@ class AgentDialog(tk.Toplevel):
         self._mode_var = tk.StringVar(value=initial_mode)
         self._goal_var = tk.StringVar(value=self._initial_input_text())
         self._preview_var = tk.StringVar(value="")
-        self._client = AgentClient.from_environment()
+        self._client = AgentClient.from_settings()
         self._prompts = PromptBuilder()
         self._executor = AgentExecutor(self.context.graph_service)
 

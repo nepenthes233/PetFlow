@@ -11,6 +11,6 @@ env/
 dist/
 build/
 *.log
+data/settings.json
 data/*.json
 !data/.gitkeep
-

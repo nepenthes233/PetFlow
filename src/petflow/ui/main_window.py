@@ -12,6 +12,7 @@ from petflow.system.clipboard_watcher import ClipboardWatcher
 from petflow.ui.agent_dialog import AgentDialog
 from petflow.ui.dialogs import NodeDialog
 from petflow.ui.graph_canvas import GraphCanvas
+from petflow.ui.settings_dialog import SettingsDialog
 
 
 class MainWindow:
@@ -78,6 +79,9 @@ class MainWindow:
             side="left", padx=(0, 8)
         )
         ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(toolbar, text="Settings", command=self.open_settings_dialog).pack(
             side="left", padx=(0, 8)
         )
         ttk.Button(
@@ -219,6 +223,13 @@ class MainWindow:
         self._update_recommendation_label()
         self._sync_pet_to_recommendation()
         self._set_status("Agent proposal applied")
+
+    def open_settings_dialog(self) -> None:
+        dialog = SettingsDialog(self.root)
+        self.root.wait_window(dialog)
+        if dialog.result is None:
+            return
+        self._set_status("Settings saved")
 
     def capture_clipboard(self) -> None:
         capture = self.clipboard_watcher.capture_once(self.root.clipboard_get)

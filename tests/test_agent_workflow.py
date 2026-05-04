@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from petflow.agent.agent_client import AgentClient
 from petflow.agent.agent_executor import AgentExecutor
@@ -38,6 +40,60 @@ class AgentWorkflowTest(unittest.TestCase):
 
         self.assertIn("nodes", proposal)
         self.assertIn("edges", proposal)
+
+    def test_client_reads_image_api_key_fallback(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "IMAGE_API_KEY": "test-key",
+                "PETFLOW_AGENT_API_KEY": "",
+                "PETFLOW_AGENT_MOCK": "",
+            },
+            clear=False,
+        ):
+            client = AgentClient.from_environment()
+
+        self.assertEqual(client.api_key, "test-key")
+
+    def test_client_parses_chat_completion_json_response(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    '{"nodes":[{"id":"n1","title":"Task"}],"edges":[]}'
+                                )
+                            }
+                        }
+                    ]
+                }
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            model="test-model",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        proposal = client.complete_json("build a graph")
+
+        self.assertEqual(proposal["nodes"][0]["title"], "Task")
+        payload = captured["kwargs"]["json"]
+        assert isinstance(payload, dict)
+        self.assertEqual(payload["model"], "test-model")
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
 
     def test_executor_applies_proposal(self) -> None:
         context = AppContext.create()

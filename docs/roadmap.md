@@ -271,6 +271,9 @@ feat: add in-graph pet assistant
 - 已增加 Agent 工作流测试，覆盖 proposal 校验、mock client、executor 落图。
 - 已新增 `AgentDialog`，支持 Generate Graph / Split Node 两种模式，并显示 JSON 预览。
 - 主窗口和节点右键菜单已接入 Agent 入口。
+- 新增 Settings 界面，可以保存 Agent API Key、Base URL、Model 和 mock 模式。
+- Agent 真实 API 调用已接入 OpenAI-compatible Chat Completions JSON mode；
+  无配置时仍保留 mock 演示路径。
 
 ### 目标
 

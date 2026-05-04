@@ -152,6 +152,10 @@ LLM 原始输出 -> JSON 解析 -> 字段校验 -> 用户预览确认 -> GraphSe
 
 Agent 不允许直接改 `GraphModel`。
 
+Agent API 设置保存在本地 `data/settings.json`，该文件被 `.gitignore` 忽略，
+不能提交到仓库。运行时优先读取本地设置；如果没有配置 API Key，则回退读取
+`PETFLOW_AGENT_API_KEY` 或 `IMAGE_API_KEY` 环境变量；仍未配置时使用 mock 模式。
+
 ## 9. Python 环境规范
 
 团队统一使用 Conda 环境 `petflow`，Python 版本固定在 3.12。当前项目不建议使用 Python 3.13，因为 macOS 下 Python 3.13 与系统 Tcl/Tk 组合可能出现 Tk 启动异常。

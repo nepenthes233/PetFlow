@@ -8,6 +8,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
 ASSETS_DIR = PROJECT_ROOT / "assets"
 DEFAULT_GRAPH_PATH = DATA_DIR / "graph.json"
+DEFAULT_SETTINGS_PATH = DATA_DIR / "settings.json"
 
 
 @dataclass(frozen=True)
