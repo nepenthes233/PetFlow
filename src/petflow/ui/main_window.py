@@ -65,6 +65,13 @@ class MainWindow:
             )
         )
         self._add_toolbar_item(
+            ttk.Button(
+                toolbar,
+                text="Copy Resource",
+                command=self.copy_selected_resource,
+            )
+        )
+        self._add_toolbar_item(
             ttk.Button(toolbar, text="Create Edge", command=self.begin_edge_mode)
         )
         self._add_toolbar_item(
@@ -213,6 +220,11 @@ class MainWindow:
                 status=dialog.result["status"],
                 priority=int(dialog.result["priority"]),
                 estimated_minutes=int(dialog.result["estimated_minutes"]),
+                actual_minutes=int(dialog.result["actual_minutes"]),
+                tags=dialog.result["tags"],
+                resource_type=dialog.result["resource_type"],
+                resource_path=str(dialog.result["resource_path"]),
+                checklist=dialog.result["checklist"],
                 repeat_type=dialog.result["repeat_type"],
                 next_due_at=str(dialog.result["next_due_at"]) or None,
                 streak=int(dialog.result["streak"]),
@@ -364,6 +376,25 @@ class MainWindow:
             self._set_status(f"Attached file to {node.title}")
         except PetFlowError as exc:
             messagebox.showerror("Attach failed", str(exc), parent=self.root)
+
+    def copy_selected_resource(self) -> None:
+        node_id = self.canvas.selected_node_id()
+        if node_id is None:
+            messagebox.showinfo(
+                "Copy Resource", "Select a resource node first.", parent=self.root
+            )
+            return
+        node = self.context.graph.get_node(node_id)
+        if node is None:
+            return
+        try:
+            value = self.context.resource_service.resource_text(node)
+        except PetFlowError as exc:
+            messagebox.showerror("Copy resource failed", str(exc), parent=self.root)
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
+        self._set_status(f"Copied resource: {node.title}")
 
     def toggle_focus_mode(self) -> None:
         enabled = bool(self.focus_mode_var.get())

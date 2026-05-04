@@ -39,6 +39,9 @@ class GraphServiceTest(unittest.TestCase):
         with self.assertRaises(GraphValidationError):
             context.graph_service.create_node(title="Task", estimated_minutes=-1)
 
+        with self.assertRaises(GraphValidationError):
+            context.graph_service.create_node(title="Task", actual_minutes=-1)
+
     def test_update_node_detail_validates_values(self) -> None:
         context = AppContext.create()
         node = context.graph_service.create_node(title="Task")
@@ -75,6 +78,34 @@ class GraphServiceTest(unittest.TestCase):
         self.assertIsNotNone(updated.completed_at)
         self.assertEqual(context.graph.history[-2]["action"], "node.status_changed")
 
+    def test_update_node_detail_updates_resource_and_checklist_fields(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Task")
+
+        updated = context.graph_service.update_node_detail(
+            node.id,
+            title="Resource task",
+            description="",
+            node_type=NodeType.RESOURCE,
+            status=NodeStatus.TODO,
+            priority=2,
+            estimated_minutes=0,
+            actual_minutes=5,
+            tags=["reference", " reference ", "course"],
+            resource_type=ResourceType.TEXT,
+            resource_path="notes.txt",
+            checklist=["collect links", "summarize"],
+        )
+
+        self.assertEqual(updated.actual_minutes, 5)
+        self.assertEqual(updated.tags, ["reference", "course"])
+        self.assertEqual(updated.resource_type, ResourceType.TEXT)
+        self.assertEqual(updated.resource_path, "notes.txt")
+        self.assertEqual(
+            [item.text for item in updated.checklist],
+            ["collect links", "summarize"],
+        )
+
     def test_create_node_accepts_routine_fields(self) -> None:
         context = AppContext.create()
 
@@ -89,6 +120,24 @@ class GraphServiceTest(unittest.TestCase):
         self.assertEqual(node.repeat_type, RepeatType.WEEKLY)
         self.assertEqual(node.next_due_at, "2026-05-05T00:00:00+00:00")
         self.assertEqual(node.streak, 2)
+
+    def test_create_node_accepts_detail_fields(self) -> None:
+        context = AppContext.create()
+
+        node = context.graph_service.create_node(
+            title="Read docs",
+            actual_minutes=12,
+            tags=[" docs ", "docs", "python"],
+            resource_type=ResourceType.URL,
+            resource_path=" https://example.com ",
+            checklist=[" skim ", "", "take notes"],
+        )
+
+        self.assertEqual(node.actual_minutes, 12)
+        self.assertEqual(node.tags, ["docs", "python"])
+        self.assertEqual(node.resource_type, ResourceType.URL)
+        self.assertEqual(node.resource_path, "https://example.com")
+        self.assertEqual([item.text for item in node.checklist], ["skim", "take notes"])
 
     def test_create_resource_node_sets_resource_fields(self) -> None:
         context = AppContext.create()

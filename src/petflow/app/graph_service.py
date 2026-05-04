@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from petflow.app.event_bus import EventBus
 from petflow.app.id_generator import IdGenerator
-from petflow.domain.entities import Edge, Node
+from petflow.domain.entities import ChecklistItem, Edge, Node
 from petflow.domain.enums import (
     EdgeType,
     EventType,
@@ -40,11 +40,18 @@ class GraphService:
         status: NodeStatus = NodeStatus.TODO,
         priority: int = 3,
         estimated_minutes: int = 30,
+        actual_minutes: int = 0,
+        tags: list[str] | None = None,
+        resource_type: ResourceType | str = ResourceType.URL,
+        resource_path: str = "",
+        checklist: list[ChecklistItem] | list[str] | None = None,
         repeat_type: RepeatType = RepeatType.NONE,
         next_due_at: str | None = None,
         streak: int = 0,
     ) -> Node:
         self._validate_node_input(title, priority, estimated_minutes, streak)
+        if actual_minutes < 0:
+            raise GraphValidationError("Actual minutes cannot be negative.")
         node = Node(
             id=self.id_generator.node_id(),
             type=node_type,
@@ -53,8 +60,13 @@ class GraphService:
             status=status,
             priority=priority,
             estimated_minutes=estimated_minutes,
+            actual_minutes=actual_minutes,
             x=x,
             y=y,
+            tags=self._normalize_tags(tags or []),
+            resource_type=self._coerce_resource_type(resource_type),
+            resource_path=resource_path.strip(),
+            checklist=self._normalize_checklist(checklist or []),
             repeat_type=repeat_type,
             next_due_at=next_due_at,
             streak=streak,
@@ -123,8 +135,11 @@ class GraphService:
         estimated_minutes = int(
             changes.get("estimated_minutes", current.estimated_minutes)
         )
+        actual_minutes = int(changes.get("actual_minutes", current.actual_minutes))
         streak = int(changes.get("streak", current.streak))
         self._validate_node_input(title, priority, estimated_minutes, streak)
+        if actual_minutes < 0:
+            raise GraphValidationError("Actual minutes cannot be negative.")
         if "title" in changes:
             changes["title"] = title.strip()
         if "description" in changes:
@@ -150,6 +165,11 @@ class GraphService:
         status: NodeStatus,
         priority: int,
         estimated_minutes: int,
+        actual_minutes: int | None = None,
+        tags: list[str] | None = None,
+        resource_type: ResourceType | str | None = None,
+        resource_path: str | None = None,
+        checklist: list[ChecklistItem] | list[str] | None = None,
         repeat_type: RepeatType | None = None,
         next_due_at: str | None = None,
         streak: int | None = None,
@@ -170,6 +190,16 @@ class GraphService:
             changes["next_due_at"] = next_due_at
         if streak is not None:
             changes["streak"] = streak
+        if actual_minutes is not None:
+            changes["actual_minutes"] = actual_minutes
+        if tags is not None:
+            changes["tags"] = self._normalize_tags(tags)
+        if resource_type is not None:
+            changes["resource_type"] = self._coerce_resource_type(resource_type)
+        if resource_path is not None:
+            changes["resource_path"] = resource_path.strip()
+        if checklist is not None:
+            changes["checklist"] = self._normalize_checklist(checklist)
         node = self.update_node(
             node_id,
             **changes,
@@ -308,6 +338,35 @@ class GraphService:
         if label is None:
             return ""
         return str(label).strip()
+
+    @staticmethod
+    def _normalize_tags(tags: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for tag in tags:
+            value = str(tag).strip()
+            if value and value not in normalized:
+                normalized.append(value)
+        return normalized
+
+    @staticmethod
+    def _normalize_checklist(
+        checklist: list[ChecklistItem] | list[str],
+    ) -> list[ChecklistItem]:
+        normalized: list[ChecklistItem] = []
+        for index, item in enumerate(checklist):
+            if isinstance(item, ChecklistItem):
+                text = item.text.strip()
+                checked = item.checked
+                item_id = item.id or f"check_{index + 1}"
+            else:
+                text = str(item).strip()
+                checked = False
+                item_id = f"check_{index + 1}"
+            if text:
+                normalized.append(
+                    ChecklistItem(id=item_id, text=text, checked=checked)
+                )
+        return normalized
 
     @staticmethod
     def _coerce_repeat_type(value: object) -> RepeatType:

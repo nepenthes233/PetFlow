@@ -4,14 +4,21 @@ import tkinter as tk
 from tkinter import ttk
 
 from petflow.domain.entities import Edge, Node
-from petflow.domain.enums import EdgeType, NodeStatus, NodeType, RepeatType
+from petflow.domain.enums import (
+    EdgeType,
+    NodeStatus,
+    NodeType,
+    RepeatType,
+    ResourceType,
+)
 
 
 class NodeDialog(tk.Toplevel):
     def __init__(self, master: tk.Misc, node: Node | None = None) -> None:
         super().__init__(master)
         self.title("Edit Node" if node else "New Node")
-        self.resizable(False, False)
+        self.resizable(True, True)
+        self.geometry("520x720")
         self.result: dict[str, object] | None = None
 
         self._title_var = tk.StringVar(value=node.title if node else "")
@@ -24,6 +31,17 @@ class NodeDialog(tk.Toplevel):
         )
         self._priority_var = tk.IntVar(value=node.priority if node else 3)
         self._estimated_var = tk.IntVar(value=node.estimated_minutes if node else 30)
+        self._actual_var = tk.IntVar(value=node.actual_minutes if node else 0)
+        self._tags_var = tk.StringVar(value=", ".join(node.tags) if node else "")
+        self._resource_type_var = tk.StringVar(
+            value=(node.resource_type.value if node else ResourceType.URL.value)
+        )
+        self._resource_path_var = tk.StringVar(
+            value=(node.resource_path if node else "")
+        )
+        self._checklist_text = "\n".join(
+            item.text for item in node.checklist
+        ) if node else ""
         self._repeat_type_var = tk.StringVar(
             value=(node.repeat_type.value if node else RepeatType.NONE.value)
         )
@@ -36,7 +54,6 @@ class NodeDialog(tk.Toplevel):
         self.transient(master)
         self.grab_set()
         self._title_entry.focus_set()
-        self.bind("<Return>", lambda _event: self._submit())
         self.bind("<Escape>", lambda _event: self._cancel())
 
     def _build_ui(self) -> None:
@@ -91,45 +108,84 @@ class NodeDialog(tk.Toplevel):
             width=8,
         ).grid(row=5, column=1, sticky="w", pady=(0, 8))
 
-        ttk.Label(body, text="Repeat").grid(row=6, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(body, text="Actual").grid(row=6, column=0, sticky="w", pady=(0, 8))
+        ttk.Spinbox(
+            body,
+            from_=0,
+            to=9999,
+            textvariable=self._actual_var,
+            width=8,
+        ).grid(row=6, column=1, sticky="w", pady=(0, 8))
+
+        ttk.Label(body, text="Tags").grid(row=7, column=0, sticky="w", pady=(0, 8))
+        ttk.Entry(body, textvariable=self._tags_var, width=36).grid(
+            row=7, column=1, sticky="ew", pady=(0, 8)
+        )
+
+        ttk.Label(body, text="Resource Type").grid(
+            row=8, column=0, sticky="w", pady=(0, 8)
+        )
+        ttk.Combobox(
+            body,
+            textvariable=self._resource_type_var,
+            values=[resource_type.value for resource_type in ResourceType],
+            state="readonly",
+            width=34,
+        ).grid(row=8, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(body, text="Resource Path").grid(
+            row=9, column=0, sticky="w", pady=(0, 8)
+        )
+        ttk.Entry(body, textvariable=self._resource_path_var, width=36).grid(
+            row=9, column=1, sticky="ew", pady=(0, 8)
+        )
+
+        ttk.Label(body, text="Checklist").grid(
+            row=10, column=0, sticky="nw", pady=(0, 8)
+        )
+        self._checklist_entry = tk.Text(body, height=4, width=36, wrap="word")
+        self._checklist_entry.insert("1.0", self._checklist_text)
+        self._checklist_entry.grid(row=10, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(body, text="Repeat").grid(row=11, column=0, sticky="w", pady=(0, 8))
         ttk.Combobox(
             body,
             textvariable=self._repeat_type_var,
             values=[repeat_type.value for repeat_type in RepeatType],
             state="readonly",
             width=34,
-        ).grid(row=6, column=1, sticky="ew", pady=(0, 8))
+        ).grid(row=11, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(body, text="Next Due").grid(row=7, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(body, text="Next Due").grid(row=12, column=0, sticky="w", pady=(0, 8))
         ttk.Entry(body, textvariable=self._next_due_var, width=36).grid(
-            row=7, column=1, sticky="ew", pady=(0, 8)
+            row=12, column=1, sticky="ew", pady=(0, 8)
         )
 
-        ttk.Label(body, text="Streak").grid(row=8, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(body, text="Streak").grid(row=13, column=0, sticky="w", pady=(0, 8))
         ttk.Spinbox(
             body,
             from_=0,
             to=9999,
             textvariable=self._streak_var,
             width=8,
-        ).grid(row=8, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=13, column=1, sticky="w", pady=(0, 8))
 
         ttk.Label(body, text="Attachments").grid(
-            row=9, column=0, sticky="nw", pady=(0, 8)
+            row=14, column=0, sticky="nw", pady=(0, 8)
         )
         ttk.Label(
             body,
             text=self._attachments_text(),
             wraplength=280,
             foreground="#475569",
-        ).grid(row=9, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=14, column=1, sticky="w", pady=(0, 8))
 
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=10, column=0, columnspan=2, sticky="w", pady=(4, 0)
+            row=15, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=11, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=16, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -141,6 +197,7 @@ class NodeDialog(tk.Toplevel):
             description = self._description_var.get().strip()
             priority = int(self._priority_var.get())
             estimated_minutes = int(self._estimated_var.get())
+            actual_minutes = int(self._actual_var.get())
             streak = int(self._streak_var.get())
             if not title:
                 raise ValueError("Title cannot be empty.")
@@ -148,8 +205,15 @@ class NodeDialog(tk.Toplevel):
                 raise ValueError("Priority must be between 1 and 5.")
             if estimated_minutes < 0:
                 raise ValueError("Estimate cannot be negative.")
+            if actual_minutes < 0:
+                raise ValueError("Actual minutes cannot be negative.")
             if streak < 0:
                 raise ValueError("Streak cannot be negative.")
+            checklist = [
+                line.strip()
+                for line in self._checklist_entry.get("1.0", tk.END).splitlines()
+                if line.strip()
+            ]
             self.result = {
                 "title": title,
                 "description": description,
@@ -157,6 +221,11 @@ class NodeDialog(tk.Toplevel):
                 "status": NodeStatus(self._status_var.get()),
                 "priority": priority,
                 "estimated_minutes": estimated_minutes,
+                "actual_minutes": actual_minutes,
+                "tags": self._parse_tags(self._tags_var.get()),
+                "resource_type": ResourceType(self._resource_type_var.get()),
+                "resource_path": self._resource_path_var.get().strip(),
+                "checklist": checklist,
                 "repeat_type": RepeatType(self._repeat_type_var.get()),
                 "next_due_at": self._next_due_var.get().strip(),
                 "streak": streak,
@@ -172,7 +241,16 @@ class NodeDialog(tk.Toplevel):
     def _attachments_text(self) -> str:
         if not self._attachments:
             return "-"
-        return "\n".join(self._attachments[:3])
+        return "\n".join(self._attachments)
+
+    @staticmethod
+    def _parse_tags(value: str) -> list[str]:
+        tags: list[str] = []
+        for raw_tag in value.split(","):
+            tag = raw_tag.strip()
+            if tag and tag not in tags:
+                tags.append(tag)
+        return tags
 
 
 class EdgeDialog(tk.Toplevel):
