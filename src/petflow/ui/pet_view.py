@@ -14,9 +14,11 @@ class PetView:
         self,
         canvas: tk.Canvas,
         to_screen: CoordinateTransform | None = None,
+        font_family: str = "TkDefaultFont",
     ) -> None:
         self.canvas = canvas
         self.to_screen = to_screen or (lambda x, y: (x, y))
+        self.font_family = font_family
         self._display_x: float | None = None
         self._display_y: float | None = None
         self._after_id: str | None = None
@@ -76,7 +78,7 @@ class PetView:
             y + 47,
             text=pet.state.value,
             fill="#334155",
-            font=("Arial", 8, "bold"),
+            font=(self.font_family, 8, "bold"),
             tags=("pet",),
         )
         if pet.speech:
@@ -140,7 +142,7 @@ class PetView:
             text=display_text,
             anchor="w",
             fill="#0f172a",
-            font=("Arial", 9),
+            font=(self.font_family, 9),
             tags=("pet",),
         )
 

@@ -15,9 +15,16 @@ class GraphCanvas(tk.Canvas):
     NODE_WIDTH = 172
     NODE_HEIGHT = 76
 
-    def __init__(self, master: tk.Misc, context: AppContext, **kwargs) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        context: AppContext,
+        font_family: str = "TkDefaultFont",
+        **kwargs,
+    ) -> None:
         super().__init__(master, bg="#f5f7fb", highlightthickness=0, **kwargs)
         self.context = context
+        self.font_family = font_family
         self._node_items: dict[str, list[int]] = {}
         self._item_to_node: dict[int, str] = {}
         self._edge_items: dict[str, list[int]] = {}
@@ -146,7 +153,7 @@ class GraphCanvas(tk.Canvas):
             text="PetFlow task graph",
             anchor="w",
             fill="#334155",
-            font=("Arial", 16, "bold"),
+            font=(self.font_family, 16, "bold"),
         )
         x, y = self._to_screen(80, 72)
         self.create_text(
@@ -155,7 +162,7 @@ class GraphCanvas(tk.Canvas):
             text="Click New Node to start building your workflow.",
             anchor="w",
             fill="#64748b",
-            font=("Arial", 11),
+            font=(self.font_family, 11),
         )
 
     def _draw_node(self, node: Node) -> None:
@@ -181,7 +188,7 @@ class GraphCanvas(tk.Canvas):
             text=node.type.value.upper(),
             anchor="w",
             fill="#475569",
-            font=("Arial", 9, "bold"),
+            font=(self.font_family, 9, "bold"),
             tags=("node", f"node:{node.id}"),
         )
         title = self.create_text(
@@ -190,7 +197,7 @@ class GraphCanvas(tk.Canvas):
             text=self._fit_text(node.title, 22),
             anchor="w",
             fill="#0f172a",
-            font=("Arial", 12, "bold"),
+            font=(self.font_family, 12, "bold"),
             tags=("node", f"node:{node.id}"),
         )
         meta = self.create_text(
@@ -199,7 +206,7 @@ class GraphCanvas(tk.Canvas):
             text=self._node_meta_text(node),
             anchor="w",
             fill="#475569",
-            font=("Arial", 9),
+            font=(self.font_family, 9),
             tags=("node", f"node:{node.id}"),
         )
         items = [rect, type_text, title, meta]
@@ -239,7 +246,7 @@ class GraphCanvas(tk.Canvas):
             (start_y + end_y) / 2 - 12,
             text=self._edge_label_text(edge),
             fill=color,
-            font=("Arial", 8),
+            font=(self.font_family, 8),
             tags=("edge", f"edge:{edge.id}"),
         )
         items = [line, label]

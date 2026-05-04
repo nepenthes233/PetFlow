@@ -15,6 +15,7 @@ from petflow.system.focus_monitor import FocusMonitor
 from petflow.ui.agent_dialog import AgentDialog
 from petflow.ui.dialogs import NodeDialog
 from petflow.ui.graph_canvas import GraphCanvas
+from petflow.ui.fonts import apply_ui_font_defaults
 from petflow.ui.settings_dialog import SettingsDialog
 
 
@@ -35,6 +36,7 @@ class MainWindow:
         self.toolbar_layout_width: int | None = None
 
         self.root = tk.Tk()
+        self.ui_font_family = apply_ui_font_defaults(self.root)
         self.root.title(self.config.app_name)
         self.root.geometry(f"{self.config.window_width}x{self.config.window_height}")
         self.root.minsize(self.config.min_width, self.config.min_height)
@@ -148,7 +150,7 @@ class MainWindow:
         toolbar.bind("<Configure>", self._schedule_toolbar_layout)
         self.root.after_idle(self._layout_toolbar)
 
-        self.canvas = GraphCanvas(self.root, self.context)
+        self.canvas = GraphCanvas(self.root, self.context, font_family=self.ui_font_family)
         self.canvas.grid(row=1, column=0, sticky="nsew")
 
         self.status_var = tk.StringVar(value=self.status_message)
