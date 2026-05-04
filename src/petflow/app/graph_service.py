@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from petflow.app.event_bus import EventBus
 from petflow.app.id_generator import IdGenerator
 from petflow.domain.entities import Edge, Node
-from petflow.domain.enums import EdgeType, EventType, NodeStatus, NodeType, RepeatType
+from petflow.domain.enums import (
+    EdgeType,
+    EventType,
+    NodeStatus,
+    NodeType,
+    RepeatType,
+    ResourceType,
+)
 from petflow.domain.events import DomainEvent
 from petflow.domain.exceptions import GraphValidationError
 from petflow.domain.graph import GraphModel
@@ -54,6 +61,53 @@ class GraphService:
         )
         self.graph.add_node(node)
         self._publish(EventType.NODE_ADDED, {"node_id": node.id})
+        return node
+
+    def create_resource_node(
+        self,
+        title: str,
+        resource_type: ResourceType | str = ResourceType.TEXT,
+        resource_path: str = "",
+        description: str = "",
+        x: float = 100.0,
+        y: float = 100.0,
+    ) -> Node:
+        resource_type = self._coerce_resource_type(resource_type)
+        node = self.create_node(
+            title=title,
+            node_type=NodeType.RESOURCE,
+            description=description,
+            priority=2,
+            estimated_minutes=0,
+            x=x,
+            y=y,
+        )
+        node = self.graph.update_node(
+            node.id,
+            resource_type=resource_type,
+            resource_path=resource_path.strip(),
+        )
+        self._publish(
+            EventType.NODE_UPDATED,
+            {"node_id": node.id, "field": "resource"},
+        )
+        return node
+
+    def add_node_attachment(self, node_id: str, path: str) -> Node:
+        current = self.graph.get_node(node_id)
+        if current is None:
+            raise GraphValidationError(f"Missing node: {node_id}")
+        normalized_path = path.strip()
+        if not normalized_path:
+            raise GraphValidationError("Attachment path cannot be empty.")
+        attachments = list(current.attachments)
+        if normalized_path not in attachments:
+            attachments.append(normalized_path)
+        node = self.graph.update_node(node_id, attachments=attachments)
+        self._publish(
+            EventType.NODE_UPDATED,
+            {"node_id": node_id, "field": "attachments"},
+        )
         return node
 
     def update_node(self, node_id: str, **changes: object) -> Node:
@@ -263,3 +317,12 @@ class GraphService:
             return RepeatType(str(value))
         except ValueError as exc:
             raise GraphValidationError(f"Invalid repeat type: {value}") from exc
+
+    @staticmethod
+    def _coerce_resource_type(value: object) -> ResourceType:
+        if isinstance(value, ResourceType):
+            return value
+        try:
+            return ResourceType(str(value))
+        except ValueError as exc:
+            raise GraphValidationError(f"Invalid resource type: {value}") from exc

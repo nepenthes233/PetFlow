@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from petflow.app.app_context import AppContext
-from petflow.ui.agent_dialog import AgentDialog
 from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
 from petflow.domain.enums import NodeStatus
 from petflow.domain.exceptions import PetFlowError
+from petflow.system.clipboard_watcher import ClipboardWatcher
+from petflow.ui.agent_dialog import AgentDialog
 from petflow.ui.dialogs import NodeDialog
 from petflow.ui.graph_canvas import GraphCanvas
 
@@ -18,6 +20,10 @@ class MainWindow:
         self.context = AppContext.create()
         self.graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
         self.context = AppContext.create(self.graph)
+        self.clipboard_watcher = ClipboardWatcher()
+        self.focus_started_at: datetime | None = None
+        self.status_message = "Ready"
+        self.status_after_id: str | None = None
 
         self.root = tk.Tk()
         self.root.title(self.config.app_name)
@@ -45,6 +51,11 @@ class MainWindow:
         ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(
+            toolbar,
+            text="Attach File",
+            command=self.attach_file_to_selected_node,
+        ).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Create Edge", command=self.begin_edge_mode).pack(
             side="left", padx=(0, 8)
         )
@@ -69,6 +80,21 @@ class MainWindow:
         ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(
+            toolbar,
+            text="Capture Clipboard",
+            command=self.capture_clipboard,
+        ).pack(side="left", padx=(0, 8))
+
+        self.focus_mode_var = tk.BooleanVar(
+            value=self.context.graph.workspace.focus_mode
+        )
+        ttk.Checkbutton(
+            toolbar,
+            text="Focus Mode",
+            variable=self.focus_mode_var,
+            command=self.toggle_focus_mode,
+        ).pack(side="left", padx=(0, 8))
 
         self.recommendation_var = tk.StringVar(value="Recommended: -")
         ttk.Label(toolbar, textvariable=self.recommendation_var).pack(
@@ -77,6 +103,15 @@ class MainWindow:
 
         self.canvas = GraphCanvas(self.root, self.context)
         self.canvas.grid(row=1, column=0, sticky="nsew")
+
+        self.status_var = tk.StringVar(value=self.status_message)
+        ttk.Label(
+            self.root,
+            textvariable=self.status_var,
+            anchor="w",
+            padding=(8, 4),
+        ).grid(row=2, column=0, sticky="ew")
+        self._refresh_status_bar()
 
     def create_node(self) -> None:
         dialog = NodeDialog(self.root)
@@ -99,6 +134,7 @@ class MainWindow:
                 y=y,
             )
             self.canvas.redraw()
+            self._set_status("Node created")
         except PetFlowError as exc:
             messagebox.showerror("Create node failed", str(exc), parent=self.root)
 
@@ -109,6 +145,7 @@ class MainWindow:
         self.canvas.mark_selected_node_status(NodeStatus.DONE)
         self._update_recommendation_label()
         self.canvas.redraw()
+        self._set_status("Node marked done")
 
     def delete_selected_node(self) -> None:
         self.canvas.delete_selected_node()
@@ -127,6 +164,7 @@ class MainWindow:
             self.context.storage_service.save_graph(
                 self.context.graph, DEFAULT_GRAPH_PATH
             )
+            self._set_status(f"Saved: {DEFAULT_GRAPH_PATH.name}")
         except PetFlowError as exc:
             messagebox.showerror("Save failed", str(exc), parent=self.root)
 
@@ -135,8 +173,10 @@ class MainWindow:
             graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
             self.context = AppContext.create(graph)
             self.canvas.set_context(self.context)
+            self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
+            self._set_status(f"Loaded: {DEFAULT_GRAPH_PATH.name}")
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
 
@@ -146,8 +186,10 @@ class MainWindow:
             graph = self.context.storage_service.load_graph(sample_path)
             self.context = AppContext.create(graph)
             self.canvas.set_context(self.context)
+            self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
+            self._set_status("Loaded sample graph")
         except PetFlowError as exc:
             messagebox.showerror("Sample load failed", str(exc), parent=self.root)
 
@@ -161,6 +203,7 @@ class MainWindow:
         self.context.pet_service.react_to_recommendation(node)
         self.canvas.redraw()
         self.recommendation_var.set(f"Recommended: {node.title}")
+        self._set_status(f"Recommended: {node.title}")
         messagebox.showinfo(
             "Recommend Next",
             f"Next: {node.title}\nStatus: {node.status.value}\nPriority: P{node.priority}",
@@ -175,6 +218,52 @@ class MainWindow:
         self.canvas.redraw()
         self._update_recommendation_label()
         self._sync_pet_to_recommendation()
+        self._set_status("Agent proposal applied")
+
+    def capture_clipboard(self) -> None:
+        capture = self.clipboard_watcher.capture_once(self.root.clipboard_get)
+        if capture is None:
+            self._set_status("Clipboard: no usable content")
+            messagebox.showinfo("Clipboard", "No usable clipboard content.", parent=self.root)
+            return
+        x, y = self._next_node_position()
+        resource_path = capture.content if capture.resource_type == "url" else ""
+        node = self.context.graph_service.create_resource_node(
+            title=capture.title,
+            resource_type=capture.resource_type,
+            resource_path=resource_path,
+            description=capture.content,
+            x=x,
+            y=y,
+        )
+        self.canvas.select_node(node.id)
+        self.canvas.redraw()
+        self._set_status(f"Clipboard captured: {node.title}")
+
+    def attach_file_to_selected_node(self) -> None:
+        node_id = self.canvas.selected_node_id()
+        if node_id is None:
+            messagebox.showinfo("Attach File", "Select a node first.", parent=self.root)
+            return
+        path = filedialog.askopenfilename(parent=self.root)
+        if not path:
+            return
+        try:
+            node = self.context.graph_service.add_node_attachment(node_id, path)
+            self.canvas.redraw()
+            self._set_status(f"Attached file to {node.title}")
+        except PetFlowError as exc:
+            messagebox.showerror("Attach failed", str(exc), parent=self.root)
+
+    def toggle_focus_mode(self) -> None:
+        enabled = bool(self.focus_mode_var.get())
+        self.context.graph.workspace.focus_mode = enabled
+        if enabled:
+            self.focus_started_at = datetime.now()
+            self._set_status("Focus mode: on")
+        else:
+            self.focus_started_at = None
+            self._set_status("Focus mode: off")
 
     def _update_recommendation_label(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
@@ -187,6 +276,40 @@ class MainWindow:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         self.context.pet_service.react_to_recommendation(node)
         self.canvas.redraw()
+
+    def _set_status(self, message: str) -> None:
+        self.status_message = message
+        self.status_var.set(self._status_text())
+
+    def _refresh_status_bar(self) -> None:
+        self.status_var.set(self._status_text())
+        self.status_after_id = self.root.after(1000, self._refresh_status_bar)
+
+    def _status_text(self) -> str:
+        parts = [
+            self.status_message,
+            f"Nodes: {len(self.context.graph.nodes)}",
+            f"Edges: {len(self.context.graph.edges)}",
+        ]
+        current_node = self.context.graph.get_node(
+            self.context.graph.workspace.current_node_id or ""
+        )
+        if current_node is not None:
+            parts.append(f"Current: {current_node.title}")
+        if self.context.graph.workspace.focus_mode:
+            parts.append(f"Focus: {self._focus_elapsed_text()}")
+        else:
+            parts.append("Focus: off")
+        return " | ".join(parts)
+
+    def _focus_elapsed_text(self) -> str:
+        if self.focus_started_at is None:
+            return "on"
+        elapsed = datetime.now() - self.focus_started_at
+        total_seconds = max(0, int(elapsed.total_seconds()))
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes:02d}:{seconds:02d}"
 
     def _next_node_position(self) -> tuple[float, float]:
         count = len(self.context.graph.nodes)

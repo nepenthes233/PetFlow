@@ -323,6 +323,14 @@ feat: add agent graph proposal workflow
 
 ## 8. M6：系统增强与最终打磨
 
+当前进展：
+
+- 新增剪贴板捕获入口，可以把 URL 或文本保存为 Resource 节点。
+- 新增状态栏，用于显示剪贴板、专注模式等操作状态。
+- 新增 Focus Mode 开关，当前先保存到 `WorkspaceState.focus_mode`，不依赖平台窗口检测。
+- 新增文件附件入口，可以把本地文件路径写入当前节点的 `attachments`。
+- `data/sample_graph.json` 已补充 Resource 节点，便于演示资源节点样式。
+
 ### 目标
 
 完善演示体验，形成有辨识度的大作业成品。

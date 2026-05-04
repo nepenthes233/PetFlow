@@ -72,6 +72,37 @@
       "metadata": {}
     },
     {
+      "id": "node_resource",
+      "type": "resource",
+      "title": "PetFlow docs",
+      "description": "Reference link captured as a resource node",
+      "status": "done",
+      "priority": 1,
+      "estimated_minutes": 0,
+      "actual_minutes": 0,
+      "x": 360,
+      "y": 260,
+      "parent_id": null,
+      "created_at": null,
+      "updated_at": null,
+      "completed_at": null,
+      "tags": ["demo", "resource"],
+      "attachments": [],
+      "repeat_type": "none",
+      "repeat_days": [],
+      "repeat_interval": 1,
+      "last_completed_at": null,
+      "next_due_at": null,
+      "streak": 0,
+      "resource_type": "url",
+      "resource_path": "https://example.com/petflow",
+      "checklist": [],
+      "unlock_condition": "",
+      "duration_minutes": 0,
+      "locked": false,
+      "metadata": {}
+    },
+    {
       "id": "node_end",
       "type": "reward",
       "title": "Take a break",
@@ -119,6 +150,15 @@
       "target": "node_end",
       "type": "recommendation",
       "label": "reward after milestone",
+      "weight": 1.0,
+      "metadata": {}
+    },
+    {
+      "id": "edge_3",
+      "source": "node_start",
+      "target": "node_resource",
+      "type": "trigger",
+      "label": "reference material",
       "weight": 1.0,
       "metadata": {}
     }

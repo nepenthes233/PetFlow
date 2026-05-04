@@ -5,7 +5,7 @@ from datetime import datetime
 
 from petflow.app import AppContext
 from petflow.domain import EdgeType, GraphValidationError, NodeStatus, NodeType
-from petflow.domain.enums import RepeatType
+from petflow.domain.enums import RepeatType, ResourceType
 
 
 class GraphServiceTest(unittest.TestCase):
@@ -89,6 +89,29 @@ class GraphServiceTest(unittest.TestCase):
         self.assertEqual(node.repeat_type, RepeatType.WEEKLY)
         self.assertEqual(node.next_due_at, "2026-05-05T00:00:00+00:00")
         self.assertEqual(node.streak, 2)
+
+    def test_create_resource_node_sets_resource_fields(self) -> None:
+        context = AppContext.create()
+
+        node = context.graph_service.create_resource_node(
+            title="example.com",
+            resource_type=ResourceType.URL,
+            resource_path="https://example.com",
+            description="https://example.com",
+        )
+
+        self.assertEqual(node.type, NodeType.RESOURCE)
+        self.assertEqual(node.resource_type, ResourceType.URL)
+        self.assertEqual(node.resource_path, "https://example.com")
+
+    def test_add_node_attachment_stores_unique_paths(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Task")
+
+        context.graph_service.add_node_attachment(node.id, "/tmp/report.pdf")
+        updated = context.graph_service.add_node_attachment(node.id, "/tmp/report.pdf")
+
+        self.assertEqual(updated.attachments, ["/tmp/report.pdf"])
 
     def test_update_node_rejects_direct_status_change(self) -> None:
         context = AppContext.create()

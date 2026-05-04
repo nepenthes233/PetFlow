@@ -30,6 +30,7 @@ class NodeDialog(tk.Toplevel):
         self._next_due_var = tk.StringVar(value=node.next_due_at if node else "")
         self._streak_var = tk.IntVar(value=node.streak if node else 0)
         self._error_var = tk.StringVar(value="")
+        self._attachments = list(node.attachments) if node else []
 
         self._build_ui()
         self.transient(master)
@@ -113,12 +114,22 @@ class NodeDialog(tk.Toplevel):
             width=8,
         ).grid(row=8, column=1, sticky="w", pady=(0, 8))
 
+        ttk.Label(body, text="Attachments").grid(
+            row=9, column=0, sticky="nw", pady=(0, 8)
+        )
+        ttk.Label(
+            body,
+            text=self._attachments_text(),
+            wraplength=280,
+            foreground="#475569",
+        ).grid(row=9, column=1, sticky="w", pady=(0, 8))
+
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(4, 0)
+            row=10, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=10, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=11, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -157,6 +168,11 @@ class NodeDialog(tk.Toplevel):
     def _cancel(self) -> None:
         self.result = None
         self.destroy()
+
+    def _attachments_text(self) -> str:
+        if not self._attachments:
+            return "-"
+        return "\n".join(self._attachments[:3])
 
 
 class EdgeDialog(tk.Toplevel):

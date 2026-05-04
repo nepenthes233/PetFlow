@@ -79,6 +79,13 @@ Routine 节点同时更新 `last_completed_at`、`next_due_at` 和 `streak`。
 负责监听图事件、更新 `PetState` 和发布 `PET_MOVED`；`PetView` 只负责在 Canvas
 上绘制桌宠和气泡，不承载推荐或状态流转规则。
 
+剪贴板捕获集中放在 `system/clipboard_watcher.py`。UI 负责读取桌面剪贴板内容，
+`ClipboardWatcher` 只负责分类和生成捕获结果；写入任务图仍必须通过
+`GraphService.create_resource_node()`。
+
+附件路径通过 `GraphService.add_node_attachment()` 写入节点。UI 可以使用文件选择框
+收集路径，但不能直接修改 `Node.attachments`。
+
 ## 5. Application 层
 
 `GraphService` 是 UI 和 Agent 修改图的统一入口。
