@@ -31,6 +31,7 @@ class AgentDialog(tk.Toplevel):
         self._executor = AgentExecutor(self.context.graph_service)
         self._validator = AgentProposalValidator()
         self._proposal: dict[str, object] | None = None
+        self.created_node_ids: list[str] = []
 
         self._build_ui()
         self.transient(master)
@@ -112,9 +113,13 @@ class AgentDialog(tk.Toplevel):
         try:
             proposal = self._proposal or self._build_proposal()
             if self._mode_var.get() == "split":
-                self._executor.apply_graph_proposal(proposal, parent_node_id=self.node_id)
+                created = self._executor.apply_graph_proposal(
+                    proposal,
+                    parent_node_id=self.node_id,
+                )
             else:
-                self._executor.apply_graph_proposal(proposal)
+                created = self._executor.apply_graph_proposal(proposal)
+            self.created_node_ids = [node.id for node in created]
             self.result = proposal
             self.destroy()
         except PetFlowError as exc:

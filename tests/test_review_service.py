@@ -33,6 +33,23 @@ class ReviewServiceTest(unittest.TestCase):
         self.assertIn("Routines: 1", summary)
         self.assertIn("History entries: 1", summary)
 
+    def test_format_agent_review_uses_summary_and_highlights(self) -> None:
+        review = ReviewService().format_agent_review(
+            {
+                "summary": "Good progress today.",
+                "highlights": ["Finished setup", "Next: polish Agent"],
+            },
+            fallback="fallback",
+        )
+
+        self.assertIn("Good progress today.", review)
+        self.assertIn("- Finished setup", review)
+
+    def test_format_agent_review_falls_back_without_summary(self) -> None:
+        review = ReviewService().format_agent_review({}, fallback="fallback")
+
+        self.assertEqual(review, "fallback")
+
 
 if __name__ == "__main__":
     unittest.main()

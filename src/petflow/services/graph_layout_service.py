@@ -35,3 +35,31 @@ class GraphLayoutService:
     def apply_grid_layout(self, graph_service: "GraphService") -> None:
         for node_id, (x, y) in self.grid_positions(graph_service.graph).items():
             graph_service.move_node(node_id, x, y)
+
+    def apply_subset_grid_layout(
+        self,
+        graph_service: "GraphService",
+        node_ids: list[str],
+    ) -> None:
+        existing_ids = [
+            node_id for node_id in node_ids if graph_service.graph.get_node(node_id)
+        ]
+        if not existing_ids:
+            return
+        other_nodes = [
+            node
+            for node_id, node in graph_service.graph.nodes.items()
+            if node_id not in set(existing_ids)
+        ]
+        start_y = self.start_y
+        if other_nodes:
+            start_y = max(node.y for node in other_nodes) + self.row_gap
+        columns = max(1, ceil(sqrt(len(existing_ids))))
+        for index, node_id in enumerate(existing_ids):
+            row = index // columns
+            column = index % columns
+            graph_service.move_node(
+                node_id,
+                self.start_x + column * self.column_gap,
+                start_y + row * self.row_gap,
+            )

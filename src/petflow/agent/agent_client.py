@@ -52,6 +52,17 @@ class AgentClient:
             return self._mock_response(prompt)
         return self._complete_chat_json(prompt)
 
+    def test_connection(self) -> str:
+        if self._use_mock():
+            self._mock_response("connection test")
+            return "Mock mode is available."
+        response = self._complete_chat_json(
+            'Return {"ok": true} as JSON to confirm the API is reachable.'
+        )
+        if response.get("ok") is True:
+            return "Agent API is reachable."
+        return "Agent API responded with valid JSON."
+
     def parse_json(self, content: str) -> dict[str, Any]:
         try:
             parsed = json.loads(content)

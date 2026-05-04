@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
+from petflow.agent.agent_client import AgentClient
 from petflow.agent.settings import AgentSettings
 from petflow.domain.exceptions import PetFlowError
 
@@ -66,15 +67,34 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
+        ttk.Button(actions, text="Test API", command=self._test_api).pack(
+            side="left", padx=(0, 8)
+        )
         ttk.Button(actions, text="Save", command=self._save).pack(side="left")
 
-    def _save(self) -> None:
-        settings = AgentSettings(
+    def _current_settings(self) -> AgentSettings:
+        return AgentSettings(
             api_key=self._api_key_var.get().strip(),
             base_url=self._base_url_var.get().strip() or "https://api.openai.com/v1",
             model=self._model_var.get().strip() or "gpt-4o-mini",
             mock_mode=bool(self._mock_mode_var.get()),
         )
+
+    def _test_api(self) -> None:
+        settings = self._current_settings()
+        client = AgentClient.from_settings(settings)
+        client.timeout_seconds = 10.0
+        try:
+            message = client.test_connection()
+        except PetFlowError as exc:
+            self._error_var.set(str(exc))
+            messagebox.showerror("Agent API Test", str(exc), parent=self)
+            return
+        self._error_var.set("")
+        messagebox.showinfo("Agent API Test", message, parent=self)
+
+    def _save(self) -> None:
+        settings = self._current_settings()
         try:
             settings.save()
         except PetFlowError as exc:

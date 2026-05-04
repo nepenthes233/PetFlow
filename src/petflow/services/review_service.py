@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from petflow.domain.enums import NodeStatus, NodeType
 from petflow.domain.graph import GraphModel
@@ -37,3 +38,22 @@ class ReviewService:
                 f"History entries: {len(graph.history)}",
             ]
         )
+
+    def format_agent_review(
+        self,
+        response: dict[str, Any],
+        fallback: str,
+    ) -> str:
+        summary = str(response.get("summary", "")).strip()
+        highlights = response.get("highlights", [])
+        if not summary:
+            return fallback
+        lines = ["PetFlow Review", summary]
+        if isinstance(highlights, list) and highlights:
+            lines.append("")
+            lines.append("Highlights:")
+            for item in highlights[:5]:
+                text = str(item).strip()
+                if text:
+                    lines.append(f"- {text}")
+        return "\n".join(lines)

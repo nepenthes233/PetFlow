@@ -70,6 +70,30 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertIn("nodes", proposal)
         self.assertIn("edges", proposal)
 
+    def test_mock_client_connection_test_succeeds(self) -> None:
+        client = AgentClient(mock_mode=True)
+
+        self.assertEqual(client.test_connection(), "Mock mode is available.")
+
+    def test_client_connection_test_uses_api(self) -> None:
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {"choices": [{"message": {"content": '{"ok": true}'}}]}
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        self.assertEqual(client.test_connection(), "Agent API is reachable.")
+
     def test_client_reads_image_api_key_fallback(self) -> None:
         with patch.dict(
             os.environ,

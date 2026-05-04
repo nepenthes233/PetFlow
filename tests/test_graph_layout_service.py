@@ -38,6 +38,19 @@ class GraphLayoutServiceTest(unittest.TestCase):
         self.assertEqual((first.x, first.y), (30, 40))
         self.assertGreater(second.x, first.x)
 
+    def test_apply_subset_grid_layout_places_new_nodes_below_existing_graph(self) -> None:
+        context = AppContext.create()
+        context.graph_service.create_node(title="Existing", x=30, y=300)
+        first = context.graph_service.create_node(title="New 1", x=0, y=0)
+        second = context.graph_service.create_node(title="New 2", x=0, y=0)
+        service = GraphLayoutService(start_x=30, start_y=40, row_gap=80)
+
+        service.apply_subset_grid_layout(context.graph_service, [first.id, second.id])
+
+        self.assertEqual(first.y, 380)
+        self.assertEqual(second.y, 380)
+        self.assertGreater(second.x, first.x)
+
 
 if __name__ == "__main__":
     unittest.main()

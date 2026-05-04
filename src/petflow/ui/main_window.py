@@ -4,6 +4,8 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from petflow.agent.agent_client import AgentClient
+from petflow.agent.prompts import PromptBuilder
 from petflow.app.app_context import AppContext
 from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
 from petflow.domain.enums import NodeStatus, PetStateType
@@ -352,6 +354,12 @@ class MainWindow:
         self.root.wait_window(dialog)
         if dialog.result is None:
             return
+        if dialog.created_node_ids:
+            self.context.graph_layout_service.apply_subset_grid_layout(
+                self.context.graph_service,
+                dialog.created_node_ids,
+            )
+            self.canvas.select_node(dialog.created_node_ids[0])
         self.canvas.redraw()
         self._update_recommendation_label()
         self._sync_pet_to_recommendation()
@@ -366,7 +374,17 @@ class MainWindow:
 
     def show_review(self) -> None:
         summary = self.context.review_service.summary_text(self.context.graph)
-        messagebox.showinfo("Review", summary, parent=self.root)
+        try:
+            response = AgentClient.from_settings().complete_json(
+                PromptBuilder().build_review_prompt(summary)
+            )
+            review_text = self.context.review_service.format_agent_review(
+                response,
+                fallback=summary,
+            )
+        except PetFlowError:
+            review_text = summary
+        messagebox.showinfo("Review", review_text, parent=self.root)
         self._set_status("Review generated")
 
     def capture_clipboard(self) -> None:
