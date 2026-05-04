@@ -314,14 +314,18 @@ class MainWindow:
             self.recommendation_var.set("Recommended: -")
             messagebox.showinfo("Recommend Next", "No available node.", parent=self.root)
             return
+        reason = self.context.recommendation_engine.recommend_reason(
+            self.context.graph,
+            node,
+        )
         self.canvas.select_node(node.id)
         self.context.pet_service.react_to_recommendation(node)
         self.canvas.redraw()
-        self.recommendation_var.set(f"Recommended: {node.title}")
+        self.recommendation_var.set(f"Recommended: {node.title} | {reason}")
         self._set_status(f"Recommended: {node.title}")
         messagebox.showinfo(
             "Recommend Next",
-            f"Next: {node.title}\nStatus: {node.status.value}\nPriority: P{node.priority}",
+            f"Next: {node.title}\nReason: {reason}\nStatus: {node.status.value}\nPriority: P{node.priority}",
             parent=self.root,
         )
 
@@ -411,7 +415,11 @@ class MainWindow:
         if node is None:
             self.recommendation_var.set("Recommended: -")
             return
-        self.recommendation_var.set(f"Recommended: {node.title}")
+        reason = self.context.recommendation_engine.recommend_reason(
+            self.context.graph,
+            node,
+        )
+        self.recommendation_var.set(f"Recommended: {node.title} | {reason}")
 
     def _sync_pet_to_recommendation(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)

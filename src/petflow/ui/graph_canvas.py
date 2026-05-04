@@ -196,7 +196,7 @@ class GraphCanvas(tk.Canvas):
         meta = self.create_text(
             x1 + self._scale(12),
             y1 + self._scale(60),
-            text=f"{node.status.value} | P{node.priority} | {node.estimated_minutes}m",
+            text=self._node_meta_text(node),
             anchor="w",
             fill="#475569",
             font=("Arial", 9),
@@ -571,3 +571,21 @@ class GraphCanvas(tk.Canvas):
         if node.status == NodeStatus.PAUSED:
             return "#ede9fe"
         return "#dbeafe"
+
+    def _node_meta_text(self, node: Node) -> str:
+        parts = [node.status.value, f"P{node.priority}", f"{node.estimated_minutes}m"]
+        if node.type == NodeType.ROUTINE:
+            state = self._routine_state_label(node)
+            if state:
+                parts.append(state)
+        return " | ".join(parts)
+
+    def _routine_state_label(self, node: Node) -> str:
+        state = self.context.routine_service.routine_state(node)
+        if state == "overdue":
+            return "overdue"
+        if state == "due":
+            return "due"
+        if state == "scheduled":
+            return "scheduled"
+        return ""

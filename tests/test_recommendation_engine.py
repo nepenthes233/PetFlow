@@ -73,6 +73,23 @@ class RecommendationEngineTest(unittest.TestCase):
 
         self.assertEqual(recommended, routine)
 
+    def test_recommend_reason_includes_routine_due(self) -> None:
+        context = AppContext.create()
+        routine = context.graph_service.create_node(
+            title="Daily review",
+            node_type=NodeType.ROUTINE,
+            priority=2,
+        )
+        context.graph_service.update_node(
+            routine.id,
+            repeat_type=RepeatType.DAILY,
+            next_due_at=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+        )
+
+        reason = context.recommendation_engine.recommend_reason(context.graph, routine)
+
+        self.assertIn("routine is due", reason)
+
 
 if __name__ == "__main__":
     unittest.main()
