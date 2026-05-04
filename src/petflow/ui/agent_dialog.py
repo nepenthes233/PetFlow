@@ -7,6 +7,7 @@ from tkinter import ttk
 from petflow.agent.agent_client import AgentClient
 from petflow.agent.agent_executor import AgentExecutor
 from petflow.agent.prompts import PromptBuilder
+from petflow.agent.proposal import AgentProposalValidator
 from petflow.app.app_context import AppContext
 from petflow.domain.exceptions import PetFlowError
 
@@ -28,6 +29,8 @@ class AgentDialog(tk.Toplevel):
         self._client = AgentClient.from_settings()
         self._prompts = PromptBuilder()
         self._executor = AgentExecutor(self.context.graph_service)
+        self._validator = AgentProposalValidator()
+        self._proposal: dict[str, object] | None = None
 
         self._build_ui()
         self.transient(master)
@@ -79,10 +82,12 @@ class AgentDialog(tk.Toplevel):
     def _refresh_preview(self) -> None:
         try:
             proposal = self._build_proposal()
-            preview = json.dumps(proposal, ensure_ascii=False, indent=2)
-            self._set_preview(preview)
+            validated = self._validator.validate(proposal)
+            self._proposal = proposal
+            self._set_preview(self._format_preview(validated, proposal))
             self._preview_var.set("")
         except PetFlowError as exc:
+            self._proposal = None
             self._set_preview("")
             self._preview_var.set(str(exc))
 
@@ -105,7 +110,7 @@ class AgentDialog(tk.Toplevel):
 
     def _apply(self) -> None:
         try:
-            proposal = self._build_proposal()
+            proposal = self._proposal or self._build_proposal()
             if self._mode_var.get() == "split":
                 self._executor.apply_graph_proposal(proposal, parent_node_id=self.node_id)
             else:
@@ -128,6 +133,37 @@ class AgentDialog(tk.Toplevel):
         self._preview.delete("1.0", tk.END)
         self._preview.insert("1.0", content)
         self._preview.configure(state="disabled")
+
+    @staticmethod
+    def _format_preview(
+        proposal: dict[str, object],
+        raw_proposal: dict[str, object],
+    ) -> str:
+        nodes = proposal.get("nodes", [])
+        edges = proposal.get("edges", [])
+        lines = [
+            f"Nodes: {len(nodes)}",
+        ]
+        if isinstance(nodes, list):
+            for node in nodes:
+                if isinstance(node, dict):
+                    lines.append(
+                        f"- {node.get('title', '')} [{node.get('type', 'task')}] "
+                        f"P{node.get('priority', 3)} {node.get('estimated_minutes', 30)}m"
+                    )
+        lines.append("")
+        lines.append(f"Edges: {len(edges)}")
+        if isinstance(edges, list):
+            for edge in edges:
+                if isinstance(edge, dict):
+                    label = edge.get("label") or edge.get("type", "dependency")
+                    lines.append(
+                        f"- {edge.get('source', '')} -> {edge.get('target', '')} ({label})"
+                    )
+        lines.append("")
+        lines.append("JSON:")
+        lines.append(json.dumps(raw_proposal, ensure_ascii=False, indent=2))
+        return "\n".join(lines)
 
     def _cancel(self) -> None:
         self.result = None

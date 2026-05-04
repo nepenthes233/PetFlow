@@ -33,6 +33,35 @@ class AgentWorkflowTest(unittest.TestCase):
         with self.assertRaises(GraphValidationError):
             validator.validate({"nodes": [{"id": "n1"}], "edges": []})
 
+    def test_validator_rejects_duplicate_node_ids(self) -> None:
+        validator = AgentProposalValidator()
+
+        with self.assertRaises(GraphValidationError):
+            validator.validate(
+                {
+                    "nodes": [
+                        {"id": "n1", "title": "Task 1"},
+                        {"id": "n1", "title": "Task 2"},
+                    ],
+                    "edges": [],
+                }
+            )
+
+    def test_validator_rejects_too_many_nodes(self) -> None:
+        validator = AgentProposalValidator(max_nodes=2)
+
+        with self.assertRaises(GraphValidationError):
+            validator.validate(
+                {
+                    "nodes": [
+                        {"id": "n1", "title": "Task 1"},
+                        {"id": "n2", "title": "Task 2"},
+                        {"id": "n3", "title": "Task 3"},
+                    ],
+                    "edges": [],
+                }
+            )
+
     def test_mock_client_returns_graph_proposal(self) -> None:
         client = AgentClient(mock_mode=True)
 

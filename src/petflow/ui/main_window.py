@@ -104,6 +104,9 @@ class MainWindow:
             ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog)
         )
         self._add_toolbar_item(
+            ttk.Button(toolbar, text="Review", command=self.show_review)
+        )
+        self._add_toolbar_item(
             ttk.Button(toolbar, text="Settings", command=self.open_settings_dialog)
         )
         self._add_toolbar_item(
@@ -345,6 +348,11 @@ class MainWindow:
         if dialog.result is None:
             return
         self._set_status("Settings saved")
+
+    def show_review(self) -> None:
+        summary = self.context.review_service.summary_text(self.context.graph)
+        messagebox.showinfo("Review", summary, parent=self.root)
+        self._set_status("Review generated")
 
     def capture_clipboard(self) -> None:
         capture = self.clipboard_watcher.capture_once(self.root.clipboard_get)

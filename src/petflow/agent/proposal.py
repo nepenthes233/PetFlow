@@ -9,6 +9,8 @@ from petflow.domain.exceptions import GraphValidationError
 
 @dataclass(slots=True)
 class AgentProposalValidator:
+    max_nodes: int = 12
+
     def validate(self, proposal: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(proposal, dict):
             raise GraphValidationError("Agent proposal must be a JSON object.")
@@ -18,15 +20,29 @@ class AgentProposalValidator:
             raise GraphValidationError("Agent proposal nodes must be a list.")
         if not isinstance(edges, list):
             raise GraphValidationError("Agent proposal edges must be a list.")
+        if len(nodes) > self.max_nodes:
+            raise GraphValidationError(
+                f"Agent proposal cannot contain more than {self.max_nodes} nodes."
+            )
 
         normalized_nodes = [
             self._validate_node(node, index) for index, node in enumerate(nodes)
         ]
+        self._validate_unique_node_ids(normalized_nodes)
         known_ids = {str(node["id"]) for node in normalized_nodes}
         normalized_edges = [
             self._validate_edge(edge, index, known_ids) for index, edge in enumerate(edges)
         ]
         return {"nodes": normalized_nodes, "edges": normalized_edges}
+
+    @staticmethod
+    def _validate_unique_node_ids(nodes: list[dict[str, Any]]) -> None:
+        seen: set[str] = set()
+        for node in nodes:
+            node_id = str(node["id"])
+            if node_id in seen:
+                raise GraphValidationError(f"Duplicate agent proposal node id: {node_id}")
+            seen.add(node_id)
 
     def _validate_node(self, node: object, index: int) -> dict[str, Any]:
         if not isinstance(node, dict):
