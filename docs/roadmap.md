@@ -1,447 +1,378 @@
 # PetFlow 开发路线图
 
-本文档描述从当前基础框架到最终演示版本的开发路径。目标是让三名组员可以按阶段并行推进，同时保证每一步都有清晰的验收标准。
+本文档描述从当前可运行框架继续扩展到最终演示版本的开发路径。目标是让三名组员可以按阶段并行推进，同时保证每一步都有清晰的验收标准。
 
-当前基础框架已经完成：
+后续开发必须遵守 `docs/architecture.md` 和 `docs/development.md` 中的模块边界。新增功能优先通过 `GraphService`、业务服务和事件机制接入，不把业务规则堆在 Tkinter 回调里。
+
+## 1. 当前状态
+
+当前项目已经完成一个可演示的基础闭环：
 
 - Python 3.12 + Conda 环境。
 - `domain / app / repositories / services / ui / agent / system` 分层。
 - JSON 仓储、图模型、枚举、Dependency 成环检测。
-- Tkinter 主窗口和 Canvas 占位。
-- 基础单元测试。
+- Tkinter 主窗口、工具栏、Canvas 节点和边绘制。
+- 节点创建、编辑、删除、拖拽、状态切换。
+- 边创建、编辑、删除，支持 Dependency / Routine / Recommendation / Trigger。
+- 保存、加载和样例图入口。
+- 本地推荐算法，支持依赖检查、优先级、doing、Routine 到期加权。
+- 图内桌宠、气泡和完成任务后的推荐响应。
+- Agent 生成任务图、拆分节点、JSON 预览、mock/API 双路径。
+- 剪贴板捕获、文件附件入口、Focus Mode 开关和状态栏。
+- 核心单元测试覆盖图模型、图服务、存储、推荐、Agent 和系统工具。
 
-后续开发必须遵守 `docs/architecture.md` 和 `docs/development.md` 中的模块边界。
+因此，后续路线不再是“搭框架”，而是“打磨体验闭环”。优先补齐用户能感知到的功能完整度，再做选做增强。
 
-## 1. 总体开发策略
+## 2. 总体策略
 
-开发顺序遵循一条主线：
+开发主线调整为：
 
 ```text
-任务图可编辑 -> 图数据可保存 -> 图语义可运行 -> 桌宠可响应 -> Agent 可辅助 -> 系统增强和演示打磨
+图编辑更好用 -> 节点详情更完整 -> Routine 可见可用 -> Agent 更可信 -> 桌宠更有响应 -> 系统增强和演示收口
 ```
 
-不要先做炫酷动画或 LLM 接入。任务图编辑和数据持久化是所有高级功能的基础，必须优先稳定。
+优先级原则：
 
-## 2. 里程碑总览
+- 先稳定主流程：创建图、编辑图、保存加载、推荐、桌宠响应。
+- 再补齐已有字段的 UI：资源、附件、Checklist、标签、实际耗时。
+- Agent 和系统检测必须保留 mock 或降级路径，不能让网络或平台能力影响演示。
+- 复杂动画、桌面悬浮宠物、文件拖拽和跨平台前台窗口检测都作为选做项。
+
+## 3. 里程碑总览
 
 ```text
-M0 基础框架                 已完成
-M1 图编辑主链路             节点绘制、拖拽、创建、编辑、删除
-M2 边编辑与持久化闭环        连边、删边、保存、加载、样例数据
-M3 语义图与推荐              基础状态流转、依赖推荐、Routine 到期权重已完成
-M4 桌宠图内交互              图内桌宠绘制、气泡、完成任务响应已完成
-M5 Agent 能力                生成任务图、拆分节点、结果预览、复盘
-M6 系统增强与最终打磨        剪贴板、附件、专注模式、UI 美化、演示脚本
+M0-M6 基础框架和 MVP          已基本完成
+M7 图编辑体验打磨             缩放、平移、布局整理、边选择反馈
+M8 节点详情和资源闭环          Resource、附件、Checklist、标签、实际耗时
+M9 Routine 和推荐闭环          到期视图、过期高亮、推荐解释、状态刷新
+M10 Agent 体验升级             更强 Prompt、结构化预览、复盘功能
+M11 桌宠和专注模式增强          状态机、轻量动画、到期提醒、专注偏离提示
+M12 最终演示和报告收口          样例数据、演示脚本、测试、文档一致性
 ```
 
-建议至少完成 M1 到 M4。M5 是项目亮点，建议完成核心两项：生成任务图和拆分节点。M6 作为加分项和演示增强。
+建议优先完成 M7 到 M10。M11 是项目特色增强，M12 是提交前必须完成的收口阶段。
 
-## 3. M1：图编辑主链路
+## 4. M7：图编辑体验打磨
 
 ### 目标
 
-让用户能在 Canvas 上看到真实节点，并完成基础节点操作。
+让任务图在节点数量变多时仍然可读、可操作、可演示。
 
 ### 主要任务
 
-#### 组员 A：领域和服务补齐
+#### 组员 A：布局服务和工作区状态
 
-- 在 `GraphService` 中补齐节点更新方法：
-  - `update_node(...)`
-  - `rename_node(...)`
-  - `update_node_detail(...)`
-- 为 `Node` 字段校验补充基础规则：
-  - title 不能为空
-  - priority 限制在 1 到 5
-  - estimated_minutes 不能为负数
-- 增加对应单元测试。
+- 设计 `GraphLayoutService` 或在应用层提供布局方法。
+- 支持简单横向/网格排列节点。
+- Agent 生成图和拆分节点后，能自动给出不重叠坐标。
+- 保存和恢复 `WorkspaceState.zoom`、`pan_x`、`pan_y`。
 
-#### 组员 B：Canvas 节点绘制
+#### 组员 B：Canvas 操作体验
 
-- 在 `GraphCanvas` 中实现节点绘制。
-- 根据 `NodeStatus` 和 `NodeType` 给节点设置颜色。
-- 建立 Canvas item id 到 node id 的映射。
-- 支持单击选中节点。
-- 支持拖拽节点，并通过 `GraphService.move_node()` 更新模型。
-- 支持双击节点打开编辑对话框。
+- 实现基础缩放和平移。
+- 优化边的选中区域和选中样式。
+- 增加“整理布局”按钮。
+- 拖拽节点时保持边实时刷新，并避免拖到不可见负坐标区域。
+- 空图提示和边创建模式提示更明确。
 
-#### 组员 C：Dialog 基础组件
+#### 组员 C：演示样例图
 
-- 新建 `src/petflow/ui/dialogs.py`。
-- 实现 `NodeDialog`：
-  - title
-  - description
-  - node type
-  - status
-  - priority
-  - estimated minutes
-- Dialog 只负责收集输入，不直接修改 `GraphModel`。
+- 准备一个覆盖主要功能的 `data/sample_graph.json`。
+- 样例图至少包含 Task、Routine、Resource 三类节点。
+- 样例图至少包含 Dependency 和 Routine 两类边。
+- 节点坐标应适合首次打开窗口展示。
 
 ### 验收标准
 
-- 点击“New Node”可以创建节点。
-- 节点显示在 Canvas 上。
-- 节点可以拖动，坐标会更新。
-- 双击节点可以编辑标题和描述。
-- 删除节点后 Canvas 会刷新。
-- 单元测试通过。
+- 能缩放和平移画布。
+- 10 个以上节点时，用户可以整理布局并继续看清边关系。
+- 边可以稳定选中、编辑和删除。
+- 加载样例图后，第一屏能展示项目核心概念。
 
 ### 推荐提交
 
 ```text
-feat: add node editing workflow
+feat: improve graph canvas navigation and layout
 ```
 
-## 4. M2：边编辑与持久化闭环
+## 5. M8：节点详情和资源闭环
 
 ### 目标
 
-完成任务图最小闭环：节点和边都能创建、编辑、保存、加载。
+让 `Node` 中已有字段真正可见、可编辑、可演示，尤其是 Resource、附件和 Checklist。
 
 ### 主要任务
 
-#### 组员 A：图规则和仓储
+#### 组员 A：节点字段服务方法
 
-- 完善 `GraphModel.add_edge()` 和 `update_edge()` 的测试。
-- 增加保存加载测试：
-  - 保存一个含节点和边的图。
-  - 重新加载后字段一致。
-- 在 `data/` 下提供一个演示样例文件，例如 `sample_graph.json`。
+- 在 `GraphService` 中补充资源、标签、Checklist、实际耗时相关方法。
+- 不允许 UI 直接修改 `Node.tags`、`Node.checklist`、`Node.resource_path`。
+- 为新增方法补充单元测试。
 
-#### 组员 B：Canvas 边绘制和连边模式
+#### 组员 B：节点详情 UI
 
-- 实现边绘制：
-  - Dependency：实线箭头
-  - Routine：绿色或虚线箭头
-  - Recommendation：浅色虚线
-  - Trigger：强调色箭头
-- 实现连边模式：
-  - 点击工具栏“Create Edge”
-  - 选择源节点
-  - 选择目标节点
-  - 弹出边类型选择
-  - 调用 `GraphService.create_edge()`
-- 支持选中边和删除边。
+- 扩展 `NodeDialog` 或新增详情面板。
+- 支持编辑：
+  - tags
+  - actual_minutes
+  - resource_type
+  - resource_path
+  - checklist
+- 附件列表不只显示前三个，应能查看完整列表。
+- Resource 节点提供打开链接、复制内容或打开文件路径的按钮。
 
-#### 组员 C：文件操作 UI
+#### 组员 C：剪贴板和附件体验
 
-- 工具栏增加：
-  - Save
-  - Load
-  - Save As，选做
-  - Open Sample，选做
-- 保存失败或加载失败要弹窗提示。
+- 剪贴板捕获后，Resource 节点标题和描述更清晰。
+- URL 资源写入 `resource_path`，文本资源写入描述或 metadata。
+- 附件添加后在详情界面立即可见。
 
 ### 验收标准
 
-- 能创建 A -> B 的 Dependency 边。
-- 试图创建 B -> A 的 Dependency 边时被拒绝并提示。
-- 能创建 Routine 环。
-- 保存后重新打开，节点坐标和边关系保持一致。
-- `data/sample_graph.json` 可用于演示。
+- Resource 节点能展示并打开/复制资源。
+- 节点能维护标签、实际耗时和 Checklist。
+- 附件列表保存加载后不丢失。
+- 相关字段的 JSON 序列化和反序列化测试通过。
 
 ### 推荐提交
 
 ```text
-feat: complete graph persistence workflow
+feat: complete node details and resource workflow
 ```
 
-## 5. M3：语义图与推荐
-
-当前进展：
-
-- `RecommendationEngine` 已支持 Dependency 前置检查、done/blocked 跳过、doing 加权、priority 加权、Routine 到期加权。
-- `GraphService.update_node_status()` 已记录状态变化历史，标记 done 时写入 `completed_at`。
-- Routine 节点标记 done 时会更新 `last_completed_at`、`next_due_at` 和 `streak`，当前支持 daily、weekly、monthly 的基础日期计算。
-- UI 已支持节点右键状态切换、工具栏 `Mark Done` 和 `Recommend Next`。
-- 已增加推荐算法和状态流转单元测试。
+## 6. M9：Routine 和推荐闭环
 
 ### 目标
 
-让任务图不仅能画，还能表达真实工作流。
+让 Routine 不只是一个节点类型，而是能被用户看到、完成、刷新和推荐的周期任务。
 
 ### 主要任务
 
-#### 组员 A：状态和推荐算法
+#### 组员 A：RoutineService
 
-- 完善 `RecommendationEngine`：
-  - 前置 Dependency 未完成的节点不能推荐。
-  - doing 节点加权。
-  - priority 高的节点加权。
-  - Routine 到期节点加权。
-  - blocked 节点降低权重或跳过。
-- 增加推荐算法测试。
-- 记录节点状态变化历史。
+- 新增或强化 Routine 查询逻辑。
+- 提供 due / overdue / upcoming 的判断方法。
+- 支持按到期时间返回 Routine 列表。
+- 完成 Routine 后刷新 `last_completed_at`、`next_due_at`、`streak`。
+- 覆盖 daily、weekly、monthly 的关键测试。
 
-#### 组员 B：状态切换 UI
+#### 组员 B：Routine UI
 
-- 节点右键菜单：
-  - Mark Todo
-  - Mark Doing
-  - Mark Done
-  - Mark Blocked
-  - Mark Paused
-  - Delete Node
-- 状态变化后节点颜色实时刷新。
-- 工具栏或侧边栏显示当前推荐节点。
+- Routine 节点在 Canvas 上显示到期状态。
+- 到期或过期 Routine 使用额外标识，不只靠节点颜色。
+- 状态栏或侧边栏展示“当前到期 Routine”。
+- 编辑 Routine 时校验 `next_due_at` 格式，错误要提示。
 
-#### 组员 C：Routine 基础逻辑
+#### 组员 C：推荐解释
 
-- 为 Routine 节点补充字段编辑：
-  - repeat_type
-  - next_due_at
-  - streak
-- MVP 可以先只支持 daily 和 weekly。
-- 完成 Routine 后刷新 next_due_at，选做。
+- 推荐结果除了节点标题，还显示原因：
+  - 前置依赖已完成
+  - 优先级较高
+  - Routine 已到期
+  - 当前正在进行
+- 推荐理由先用本地模板实现，LLM 改写作为选做。
 
 ### 验收标准
 
-- Dependency 前置未完成时，后置节点不能被推荐。
-- 节点状态切换后颜色正确。
-- 点击“Recommend Next”能得到一个合理节点。
-- Routine 节点有独立样式和基础字段。
+- 到期 Routine 能被视觉标识。
+- 完成 Routine 后，下次到期时间和 streak 正确更新。
+- 推荐节点时能展示一条本地推荐理由。
+- blocked 和未满足依赖的节点不会被推荐。
 
 ### 推荐提交
 
 ```text
-feat: add semantic graph states and recommendation
+feat: add routine due workflow and recommendation reasons
 ```
 
-## 6. M4：桌宠图内交互
-
-当前进展：
-
-- 新增 `PetService`，监听节点状态变化事件。
-- 节点标记 done 后，桌宠会移动到推荐节点旁，并显示下一步提示。
-- `Recommend Next` 会让桌宠进入 think 状态并移动到推荐节点旁。
-- 新增 `PetView`，用 Canvas 图形绘制桌宠和气泡。
-- `PetState` 已随项目 JSON 保存和加载。
+## 7. M10：Agent 体验升级
 
 ### 目标
 
-让桌宠成为项目特色，而不是静态装饰。
+让 Agent 结果更可信、更可控、更适合演示，而不是只展示 JSON。
 
 ### 主要任务
 
-#### 组员 A：事件和推荐衔接
+#### 组员 A：Agent 校验和执行
 
-- 在节点完成时发布事件。
-- 让桌宠模块能监听节点状态变化。
-- 完成节点后触发推荐下一步。
+- 校验 proposal 内部是否有重复临时 ID。
+- 依赖边成环时给出明确错误。
+- 对 Agent 生成节点数量设置合理上限，避免一次生成过多节点。
+- `AgentExecutor` 保持只通过 `GraphService` 落图。
 
-#### 组员 B：Canvas 桌宠渲染
+#### 组员 B：结构化预览
 
-- 新建 `src/petflow/ui/pet_view.py`。
-- 桌宠可以先用 Canvas 圆形、简单图片或少量 PNG。
-- 实现桌宠位置更新。
-- 桌宠位置保存到 `PetState`。
+- `AgentDialog` 增加结构化预览：
+  - 节点列表
+  - 边列表
+  - 预计新增数量
+  - 可能的校验问题
+- JSON 原文保留为调试视图或折叠区域。
+- 应用后自动整理新节点布局并选中新增区域中的第一个节点。
 
-#### 组员 C：桌宠动作和气泡
+#### 组员 C：Prompt 和复盘
 
-- 实现简单动作状态：
-  - idle
-  - move
-  - happy
-  - think
-  - sleep
-- 实现气泡提示。
-- 完成节点后，桌宠移动到推荐节点旁并显示一句提示。
+- 拆分节点 Prompt 加入：
+  - 当前节点标题和描述
+  - 前置依赖
+  - 后置节点
+  - 预计耗时
+  - 当前图中已有节点数量
+- 生成任务图 Prompt 要求返回 3 到 10 个节点，避免结果过大。
+- 新增复盘入口：先用本地统计生成 summary，再调用 Agent 改写。
+- API 不可用时，用本地模板生成复盘。
 
 ### 验收标准
 
-- 主界面能看到桌宠。
-- 用户完成节点后，桌宠移动到推荐节点旁。
-- Routine 到期或推荐节点出现时，桌宠能显示气泡。
-- 即使没有图片资源，桌宠也能用 Canvas 图形正常演示。
+- Agent 生成和拆分结果能以结构化形式预览。
+- 无 API Key 时 mock 模式仍可完整演示。
+- 复盘功能至少能输出本地模板结果。
+- Agent 返回异常 JSON 时不会破坏当前图。
 
 ### 推荐提交
 
 ```text
-feat: add in-graph pet assistant
+feat: improve agent previews and add review workflow
 ```
 
-## 7. M5：Agent 能力
-
-当前进展：
-
-- 新增 `AgentProposalValidator`，会校验 nodes / edges 结构和基础字段。
-- `AgentClient` 增加 mock 模式，默认在无 API Key 时返回稳定样例，便于演示。
-- `PromptBuilder` 已覆盖生成图、拆分节点和复盘三类 prompt。
-- `AgentExecutor` 会先校验 proposal，再通过 `GraphService` 落图。
-- 已增加 Agent 工作流测试，覆盖 proposal 校验、mock client、executor 落图。
-- 已新增 `AgentDialog`，支持 Generate Graph / Split Node 两种模式，并显示 JSON 预览。
-- 主窗口和节点右键菜单已接入 Agent 入口。
-- 新增 Settings 界面，可以保存 Agent API Key、Base URL、Model 和 mock 模式。
-- Agent 真实 API 调用已接入 OpenAI-compatible Chat Completions JSON mode；
-  无配置时仍保留 mock 演示路径。
+## 8. M11：桌宠和专注模式增强
 
 ### 目标
 
-完成项目智能化亮点：自然语言生成任务图和节点拆分。
+让桌宠从“会移动的装饰”提升为“任务图状态反馈入口”。
 
 ### 主要任务
 
-#### 组员 A：Agent 输出校验
+#### 组员 A：事件和状态机
 
-- 新建 proposal 校验逻辑：
-  - nodes 必须是列表
-  - edges 必须是列表
-  - 节点必须有 title
-  - 边必须有 source 和 target
-  - type 必须属于枚举
-- LLM 输出解析失败时不能影响当前图。
-- 增加测试。
+- 梳理桌宠状态转换：
+  - idle：无推荐或空闲
+  - think：用户请求推荐或 Agent 工作
+  - happy：完成节点后推荐下一步
+  - angry：专注模式偏离
+  - sleep：长时间无操作
+- 用事件驱动状态变化，避免 UI 直接写复杂桌宠逻辑。
 
-#### 组员 B：AgentDialog
+#### 组员 B：PetView 动画
 
-- 实现 Agent 输入窗口。
-- 支持两个模式：
-  - Generate Graph
-  - Split Node
-- 显示 JSON 预览或结构化预览。
-- 用户确认后才调用 `AgentExecutor`。
+- 用 Canvas `after()` 实现轻量移动动画。
+- 保持无图片资源时也能演示。
+- 气泡文本自动截断，避免遮挡节点。
+- 未来可以替换 PNG/GIF，但不作为主线阻塞。
 
-#### 组员 C：AgentClient 和 Prompt
+#### 组员 C：Focus Mode
 
-- 完善 `PromptBuilder`：
-  - 生成任务图 Prompt
-  - 拆分节点 Prompt
-  - 复盘 Prompt
-- 实现 `AgentClient`。
-- API Key 通过环境变量读取，不写入代码。
-- 如果没有 API Key，提供 mock 模式，返回固定样例，保证演示不依赖网络。
+- Focus Mode 先实现稳定计时和当前任务提示。
+- `FocusMonitor` 在 Windows 下使用 pywin32；其他平台返回 mock 或不可用状态。
+- 检测到偏离时，桌宠提示用户回到当前节点。
+- 是否创建 Reward/Distraction 节点作为选做，不放在主流程。
 
 ### 验收标准
 
-- 输入一段目标，能生成任务图预览。
-- 用户确认后，节点和边加入 Canvas。
-- 右键节点执行“Agent Split”，能生成子任务预览。
-- API 不可用时，mock 模式仍可演示。
+- 完成任务、推荐任务、Routine 到期和专注偏离能触发不同气泡。
+- 桌宠移动有基础动画，而不是瞬移。
+- Focus Mode 在无 pywin32 的环境下不影响程序启动。
+- 所有系统增强都有降级路径。
 
 ### 推荐提交
 
 ```text
-feat: add agent graph proposal workflow
+feat: enhance pet reactions and focus mode
 ```
 
-## 8. M6：系统增强与最终打磨
-
-当前进展：
-
-- 新增剪贴板捕获入口，可以把 URL 或文本保存为 Resource 节点。
-- 新增状态栏，用于显示剪贴板、专注模式等操作状态。
-- 新增 Focus Mode 开关，当前先保存到 `WorkspaceState.focus_mode`，不依赖平台窗口检测。
-- 新增文件附件入口，可以把本地文件路径写入当前节点的 `attachments`。
-- `data/sample_graph.json` 已补充 Resource 节点，便于演示资源节点样式。
+## 9. M12：最终演示和报告收口
 
 ### 目标
 
-完善演示体验，形成有辨识度的大作业成品。
+把项目整理成可以稳定提交、稳定演示、和文档一致的版本。
 
 ### 主要任务
 
-#### 剪贴板资源节点
+- 运行完整测试：
 
-- `ClipboardWatcher` 定时检查剪贴板内容。
-- 检测 URL 或长文本。
-- 弹窗询问是否保存为 Resource 节点。
-- Resource 节点出现在当前节点附近。
-
-#### 文件附件
-
-- MVP 用文件选择框，不强求拖拽。
-- 文件路径写入 `attachments`。
-- 节点详情中显示附件列表。
-
-#### 专注模式
-
-- 先实现 UI 开关和计时。
-- Windows 下 `FocusMonitor` 用 pywin32 获取前台窗口，作为选做。
-- macOS 或其他平台可以只展示模拟检测，不影响主流程。
-
-#### UI 打磨
-
-- 统一配色。
-- 增加状态栏：
-  - 当前节点
-  - 推荐节点
-  - 保存状态
-  - 专注模式状态
-- 准备演示样例图。
-
-### 验收标准
-
-- 复制链接后能快速变成 Resource 节点。
-- 节点能添加附件路径。
-- 有可展示的专注模式入口。
-- 项目启动后默认能加载演示图或快速创建演示图。
-
-### 推荐提交
-
-```text
-feat: add system enhancements and demo polish
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
 ```
 
-## 9. 最终验收清单
+- 检查启动命令：
 
-最终提交前必须逐项检查：
+```bash
+PYTHONPATH=src python -m petflow.main
+```
+
+- 准备最终 `data/sample_graph.json`。
+- README 更新运行方式、功能清单和演示步骤。
+- 报告中技术路线统一为 Python + Tkinter + Canvas。
+- 删除或说明早期 Qt 方案只作为历史创意参考。
+- 检查本地 `data/settings.json` 不被提交。
+- 确认无 API Key 时 Agent mock 演示可用。
+
+### 最终验收清单
 
 - 环境能创建：`conda env create -f environment.yml`
-- 程序能启动：`PYTHONPATH=src python -m petflow.main`
+- 程序能启动。
 - 单元测试通过。
 - 能创建、编辑、删除节点。
 - 能拖拽节点。
-- 能创建、删除边。
+- 能创建、编辑、删除边。
 - Dependency 成环会被拒绝。
 - Routine 环允许创建。
 - JSON 保存和加载正确。
 - 至少三种节点类型可见：Task、Routine、Resource。
 - 至少两种边类型可见：Dependency、Routine。
 - 能切换节点状态。
-- 能推荐下一步。
-- 桌宠能响应节点完成。
+- 能推荐下一步并展示推荐理由。
+- Routine 到期状态可见。
+- 桌宠能响应节点完成和推荐。
 - Agent 生成任务图或 mock 生成任务图可演示。
-- 节点拆分可演示。
+- Agent 拆分节点可演示。
+- 剪贴板资源节点或附件功能可演示。
 - 有演示样例数据。
-- 文档和报告中的技术路线一致。
+- 文档、报告和实际功能一致。
 
 ## 10. 推荐演示路线
 
 演示不要从空讲概念开始，直接操作软件：
 
-1. 打开 PetFlow，展示示例任务图。
-2. 新建一个任务节点。
-3. 拖动节点，展示 Canvas 交互。
-4. 创建 Dependency 边。
+1. 打开 PetFlow，加载示例任务图。
+2. 展示 Task、Routine、Resource 三类节点。
+3. 拖动节点，缩放和平移画布。
+4. 创建一个 Dependency 边。
 5. 尝试创建 Dependency 环，展示系统拒绝。
 6. 创建 Routine 环，展示系统允许。
-7. 标记一个节点为 done，展示推荐节点变化。
+7. 标记一个节点为 done，展示推荐节点和推荐理由变化。
 8. 桌宠移动到推荐节点旁并显示气泡。
 9. 打开 Agent 窗口，输入课程大作业目标。
-10. 展示 Agent 生成任务图预览。
-11. 对一个复杂节点执行拆分。
-12. 保存、关闭、重新加载，展示持久化。
-13. 展示剪贴板资源节点或专注模式作为加分项。
+10. 展示 Agent 结构化预览。
+11. 应用 Agent 结果并整理布局。
+12. 对一个复杂节点执行拆分。
+13. 展示 Resource 节点、剪贴板捕获或附件。
+14. 展示 Focus Mode 或复盘功能作为加分项。
+15. 保存、关闭、重新加载，展示持久化。
 
 ## 11. 风险控制
 
 ### 风险一：Canvas 交互耗时过长
 
-优先实现按钮式连边和右键菜单，不追求复杂手势。缩放和平移可以后置。
+先做缩放、平移和整理布局三个最有演示价值的操作。复杂手势、框选、多选和自动避障可以后置。
 
-### 风险二：Agent API 不稳定
+### 风险二：节点详情范围膨胀
 
-必须保留 mock 模式。演示时如果网络或 API Key 不可用，仍然能展示 Agent 流程。
+优先把已有字段做成可见可保存。高级富文本、复杂附件管理和文件拖拽都作为选做项。
 
-### 风险三：桌宠动画成本高
+### 风险三：Agent API 不稳定
 
-桌宠核心价值是“响应任务图状态”，不是复杂动画。可以用 Canvas 图形先完成交互，再替换图片。
+必须保留 mock 模式和本地模板。演示时不能依赖网络或 API Key。
 
-### 风险四：系统检测跨平台复杂
+### 风险四：桌宠动画成本高
 
-专注模式先做 UI 和计时，前台窗口检测作为 Windows 加分项，不放在主线。
+桌宠核心价值是“响应任务图状态”。动画只做轻量移动和气泡变化，不追求复杂美术。
 
-### 风险五：多人修改冲突
+### 风险五：系统检测跨平台复杂
+
+Focus Mode 先做 UI、计时和 mock 提示。前台窗口检测作为 Windows 加分项，不放在主线。
+
+### 风险六：多人修改冲突
 
 严格按模块分工。涉及公共领域模型的改动，先同步字段和 JSON 结构，再分别开发 UI 或 Agent。
 
@@ -450,11 +381,11 @@ feat: add system enhancements and demo polish
 如果总开发时间较紧，可以按比例分配：
 
 ```text
-30%  图编辑和持久化
-20%  语义规则和推荐
-15%  桌宠交互
-20%  Agent 能力
-15%  系统增强、UI 打磨、报告和演示
+25%  图编辑体验和布局
+20%  节点详情、资源和 Routine
+20%  Agent 预览和复盘
+15%  桌宠和专注模式
+20%  测试、样例数据、UI 打磨、报告和演示
 ```
 
-如果时间不足，优先砍选做功能，不能砍任务图编辑、保存加载、依赖规则和桌宠响应。
+如果时间不足，优先砍选做功能，不能砍任务图编辑、保存加载、依赖规则、推荐理由、桌宠响应和 Agent mock 演示。

@@ -25,6 +25,10 @@ class MainWindow:
         self.focus_started_at: datetime | None = None
         self.status_message = "Ready"
         self.status_after_id: str | None = None
+        self.toolbar: ttk.Frame | None = None
+        self.toolbar_items: list[tuple[tk.Widget, tuple[int, int], str]] = []
+        self.toolbar_layout_after_id: str | None = None
+        self.toolbar_layout_width: int | None = None
 
         self.root = tk.Tk()
         self.root.title(self.config.app_name)
@@ -39,71 +43,83 @@ class MainWindow:
 
         toolbar = ttk.Frame(self.root, padding=8)
         toolbar.grid(row=0, column=0, sticky="ew")
+        self.toolbar = toolbar
 
-        ttk.Button(toolbar, text="New Node", command=self.create_node).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="New Node", command=self.create_node)
         )
-        ttk.Button(toolbar, text="Edit Node", command=self.edit_selected_node).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Edit Node", command=self.edit_selected_node)
         )
-        ttk.Button(toolbar, text="Mark Done", command=self.mark_selected_done).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Mark Done", command=self.mark_selected_done)
         )
-        ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node)
         )
-        ttk.Button(
-            toolbar,
-            text="Attach File",
-            command=self.attach_file_to_selected_node,
-        ).pack(side="left", padx=(0, 8))
-        ttk.Button(toolbar, text="Create Edge", command=self.begin_edge_mode).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(
+                toolbar,
+                text="Attach File",
+                command=self.attach_file_to_selected_node,
+            )
         )
-        ttk.Button(toolbar, text="Delete Edge", command=self.delete_selected_edge).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Create Edge", command=self.begin_edge_mode)
         )
-        ttk.Button(toolbar, text="Edit Edge", command=self.edit_selected_edge).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Delete Edge", command=self.delete_selected_edge)
         )
-        ttk.Button(toolbar, text="Save", command=self.save_graph).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Edit Edge", command=self.edit_selected_edge)
         )
-        ttk.Button(toolbar, text="Load", command=self.load_graph).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(ttk.Button(toolbar, text="Save", command=self.save_graph))
+        self._add_toolbar_item(ttk.Button(toolbar, text="Load", command=self.load_graph))
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Sample", command=self.load_sample_graph)
         )
-        ttk.Button(toolbar, text="Sample", command=self.load_sample_graph).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Recommend Next", command=self.recommend_next)
         )
-        ttk.Button(toolbar, text="Recommend Next", command=self.recommend_next).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog)
         )
-        ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(toolbar, text="Settings", command=self.open_settings_dialog)
         )
-        ttk.Button(toolbar, text="Settings", command=self.open_settings_dialog).pack(
-            side="left", padx=(0, 8)
+        self._add_toolbar_item(
+            ttk.Button(
+                toolbar,
+                text="Capture Clipboard",
+                command=self.capture_clipboard,
+            )
         )
-        ttk.Button(
-            toolbar,
-            text="Capture Clipboard",
-            command=self.capture_clipboard,
-        ).pack(side="left", padx=(0, 8))
 
         self.focus_mode_var = tk.BooleanVar(
             value=self.context.graph.workspace.focus_mode
         )
-        ttk.Checkbutton(
-            toolbar,
-            text="Focus Mode",
-            variable=self.focus_mode_var,
-            command=self.toggle_focus_mode,
-        ).pack(side="left", padx=(0, 8))
+        self._add_toolbar_item(
+            ttk.Checkbutton(
+                toolbar,
+                text="Focus Mode",
+                variable=self.focus_mode_var,
+                command=self.toggle_focus_mode,
+            )
+        )
 
         self.recommendation_var = tk.StringVar(value="Recommended: -")
-        ttk.Label(toolbar, textvariable=self.recommendation_var).pack(
-            side="left", padx=(16, 0)
+        self.recommendation_label = ttk.Label(
+            toolbar,
+            textvariable=self.recommendation_var,
+            wraplength=320,
         )
+        self._add_toolbar_item(
+            self.recommendation_label,
+            padx=(16, 0),
+            sticky="w",
+        )
+        toolbar.bind("<Configure>", self._schedule_toolbar_layout)
+        self.root.after_idle(self._layout_toolbar)
 
         self.canvas = GraphCanvas(self.root, self.context)
         self.canvas.grid(row=1, column=0, sticky="nsew")
@@ -116,6 +132,60 @@ class MainWindow:
             padding=(8, 4),
         ).grid(row=2, column=0, sticky="ew")
         self._refresh_status_bar()
+
+    def _add_toolbar_item(
+        self,
+        widget: tk.Widget,
+        padx: tuple[int, int] = (0, 8),
+        sticky: str = "w",
+    ) -> None:
+        self.toolbar_items.append((widget, padx, sticky))
+
+    def _schedule_toolbar_layout(self, event: tk.Event[ttk.Frame] | None = None) -> None:
+        if event is not None and self.toolbar_layout_width == event.width:
+            return
+        if self.toolbar_layout_after_id is not None:
+            return
+        self.toolbar_layout_after_id = self.root.after(50, self._layout_toolbar)
+
+    def _layout_toolbar(self) -> None:
+        self.toolbar_layout_after_id = None
+        if self.toolbar is None:
+            return
+
+        width = self.toolbar.winfo_width()
+        if width <= 1:
+            width = self.root.winfo_width()
+        if width <= 1:
+            width = self.config.window_width
+        self.toolbar_layout_width = width
+        available_width = max(160, width - 16)
+        self.recommendation_label.configure(
+            wraplength=max(140, min(360, available_width // 2))
+        )
+
+        rows: list[list[tuple[tk.Widget, tuple[int, int], str]]] = [[]]
+        row_width = 0
+        for widget, padx, sticky in self.toolbar_items:
+            item_width = widget.winfo_reqwidth() + padx[0] + padx[1]
+            if rows[-1] and row_width + item_width > available_width:
+                rows.append([])
+                row_width = 0
+            rows[-1].append((widget, padx, sticky))
+            row_width += item_width
+
+        for widget, _padx, _sticky in self.toolbar_items:
+            widget.grid_forget()
+
+        for row_index, row_items in enumerate(rows):
+            for column_index, (widget, padx, sticky) in enumerate(row_items):
+                widget.grid(
+                    row=row_index,
+                    column=column_index,
+                    sticky=sticky,
+                    padx=padx,
+                    pady=(0, 6),
+                )
 
     def create_node(self) -> None:
         dialog = NodeDialog(self.root)
