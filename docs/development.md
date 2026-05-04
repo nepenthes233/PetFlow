@@ -2,6 +2,8 @@
 
 本文档用于约束日常开发流程。所有组员在写功能前先阅读本文档、`docs/architecture.md` 和 `docs/roadmap.md`。
 
+本文档的目标是：把当前已经能运行的代码作为 `main` 分支基线，之后所有开发都围绕这个基线做增量改动、测试和合并。
+
 ## 1. 环境搭建
 
 推荐使用 Conda，并统一环境名为 `petflow`。
@@ -28,6 +30,8 @@ compileall OK
 unittest OK
 ```
 
+推荐提交前保持这些检查都通过。
+
 ## 2. 运行项目
 
 开发阶段使用源码目录运行：
@@ -44,6 +48,8 @@ conda run -n petflow env PYTHONPATH=src python -m petflow.main
 
 如果在自动化终端或远程会话中测试 Tkinter，窗口探针可能因为没有正常的图形会话而挂起。GUI 功能优先在本机桌面终端里手动运行上面的命令验证。
 
+当前项目的启动入口就是这一条，不要再回到旧的 Qt 或 Web 方案。
+
 ## 3. 验证命令
 
 每次提交前至少执行：
@@ -57,6 +63,13 @@ PYTHONPATH=src python -m unittest discover -s tests
 
 ```bash
 ruff check src tests
+```
+
+建议合并前至少完成：
+
+```bash
+PYTHONPATH=src python -m compileall src tests
+PYTHONPATH=src python -m unittest discover -s tests
 ```
 
 ## 4. 分支规范
@@ -73,6 +86,13 @@ docs/dev-guide
 ```
 
 不要直接在主分支上堆多个无关功能。一个分支只解决一个清晰目标。
+
+推荐的 GitHub 协作方式：
+
+- `main` 只接收可运行、可测试、文档同步后的代码。
+- 每个功能先开 Issue，再开分支，再提 PR。
+- 一个 PR 只解决一类问题，避免同时改业务、UI、样例数据和文档。
+- 合并前至少有一名其他组员 review。
 
 ## 5. 提交信息规范
 
@@ -118,6 +138,14 @@ docs: add conda setup guide
 - 新增类型必须先加枚举，不要散落字符串。
 - 图规则优先写测试。
 
+适合处理的工作：
+
+- 节点/边字段变更
+- Routine 规则
+- 推荐算法
+- JSON 兼容和存储
+- 相关测试
+
 ### 组员 B：UI 与图编辑
 
 主要负责：
@@ -132,6 +160,14 @@ docs: add conda setup guide
 - Canvas 中只保存绘图状态，不写业务规则。
 - 复杂弹窗单独拆文件，不要全塞进 `main_window.py`。
 
+适合处理的工作：
+
+- Canvas 交互
+- 节点/边编辑界面
+- 样例图展示
+- 工具栏和状态栏体验
+- 与图编辑相关的 UI 打磨
+
 ### 组员 C：Agent、桌宠与系统能力
 
 主要负责：
@@ -145,6 +181,14 @@ docs: add conda setup guide
 - Agent 不直接改 `GraphModel`。
 - LLM 输出必须先预览和校验。
 - 剪贴板和前台窗口检测不能影响主程序启动。
+
+适合处理的工作：
+
+- Agent 预览和应用
+- mock / API 降级
+- 桌宠绘制和状态响应
+- Focus Mode
+- 剪贴板与资源入口
 
 ## 7. 开发流程
 
@@ -161,6 +205,15 @@ docs: add conda setup guide
 - 是否需要新增领域规则？
 - 是否需要更新 JSON 格式？
 - 是否需要写测试？
+
+建议每个任务都遵循这个最小闭环：
+
+1. 先在 Issue 里说清楚目标和影响文件。
+2. 分支只做这一件事。
+3. 改代码时尽量先改服务层，再改 UI。
+4. 补测试。
+5. 更新相关文档或样例数据。
+6. 提 PR，等 review 后合并。
 
 ## 8. 代码风格
 
@@ -197,6 +250,8 @@ history
 - 更新 `docs/architecture.md` 或设计文档。
 - 增加或更新测试。
 
+目前仓库中的 `data/sample_graph.json` 和 `data/graph.json` 都属于项目基线数据。改动它们时要特别谨慎，因为它们会直接影响演示和回归测试。
+
 ## 10. 合并前检查清单
 
 提交前自查：
@@ -207,3 +262,12 @@ history
 - 没有把 API Key 写进代码。
 - 没有绕过 `GraphService` 修改图数据。
 - 新增模块有清楚的职责边界。
+
+补充一条：如果改了 UI 但没有手动验证基本交互，就不要合并。至少确认以下动作可用：
+
+- 打开程序
+- 加载样例图
+- 新建节点
+- 编辑节点
+- 创建和删除边
+- 保存并重新加载

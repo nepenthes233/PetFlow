@@ -2,6 +2,8 @@
 
 本文档用于约束后续开发。目标不是把项目做复杂，而是让三个人并行开发时边界清楚，后续功能扩展时不用推倒重写。
 
+本文也作为当前 `main` 分支的实现基线说明：后续开发都应在这个基础上增量演进，不要再回到早期 Qt 设想或重新搭框架。
+
 ## 1. 总体原则
 
 PetFlow 按五层组织：
@@ -22,6 +24,24 @@ Integration 层   Agent、剪贴板、前台窗口检测等外部能力
 - `Domain` 不依赖 Tkinter、requests、pywin32 或文件系统。
 - `Agent` 返回的数据必须先校验和预览，再交给应用服务写入图。
 - 系统能力都是选配模块，不能影响任务图基础功能启动。
+
+## 1.1 当前实现基线
+
+当前仓库已经落地的核心能力如下：
+
+- `domain / app / repositories / services / ui / agent / system` 分层已建立。
+- 任务图支持节点、边、桌宠状态、工作区状态和历史记录的 JSON 持久化。
+- `GraphService` 是 UI 和 Agent 修改图数据的统一入口。
+- Tkinter 主窗口、Canvas、节点/边编辑对话框已经可运行。
+- 支持节点创建、编辑、删除、拖拽、状态切换，以及边创建、编辑、删除。
+- 支持保存、加载、样例图加载、基础布局、缩放、平移、重置视图。
+- 本地推荐引擎可根据依赖、状态、优先级和 Routine 到期情况给出推荐。
+- 桌宠已具备图内绘制、推荐响应、完成响应和轻量移动动画。
+- Agent 已支持 mock / API 双路径、JSON 预览、节点生成和拆分。
+- 剪贴板捕获、资源节点、附件入口、Focus Mode 降级检测和复盘入口已接入。
+- 单元测试已覆盖图模型、图服务、存储、推荐、Agent、系统工具等核心路径。
+
+这意味着当前项目不是“空骨架”，而是一个可以继续打磨体验和功能的可运行基线。
 
 ## 2. 目录职责
 
@@ -55,6 +75,12 @@ Domain 是项目地基，负责表达 PetFlow 的核心概念：
 EdgeType.DEPENDENCY
 NodeStatus.DONE
 ```
+
+当前字段约定以 `domain/entities.py` 为准。新增字段时必须同步更新：
+
+- `to_dict()` / `from_dict()`
+- 相关单元测试
+- 可能依赖该字段的 UI 或 Agent 逻辑
 
 ## 4. 图规则
 
@@ -118,6 +144,8 @@ context.graph.edges[edge_id] = edge
 - `ReviewService`：负责根据 `history`、节点状态和 Routine 记录生成日/周复盘数据。
 - `FocusService`：负责把前台窗口检测结果、专注计时和任务状态衔接起来。
 - `ResourceService`：负责资源节点打开、复制、预览和附件列表展示所需的数据整理。
+
+当前代码中这些服务已经部分落地，后续开发应优先补齐已有服务，而不是把逻辑塞回 UI 回调里。
 
 这些服务不必一次性全部创建。只有当对应功能开始变复杂时，才从 UI 或现有服务中抽出。
 判断标准是：同一段业务逻辑被多个 UI 入口使用，或者它需要被单元测试稳定覆盖。
@@ -195,6 +223,12 @@ conda activate petflow
 PYTHONPATH=src python -m unittest discover -s tests
 ```
 
+提交前也建议跑一次：
+
+```bash
+PYTHONPATH=src python -m compileall src tests
+```
+
 ## 10. UI 规范
 
 Tkinter UI 的职责是显示和收集用户操作。
@@ -213,6 +247,14 @@ Dialog 负责：
 - 展示错误提示
 
 UI 里可以维护 Canvas item id 到 node id 的映射，但不能把业务规则写死在绘图代码里。
+
+当前 UI 代码的实际分工是：
+
+- `main_window.py` 负责应用级入口、工具栏、状态栏和窗口级编排。
+- `graph_canvas.py` 负责节点与边绘制、拖拽、连边、选中、缩放和平移。
+- `dialogs.py` 负责节点和边的编辑表单。
+- `agent_dialog.py` 负责 Agent 预览和应用。
+- `pet_view.py` 负责桌宠绘制和气泡显示。
 
 下一阶段 UI 打磨按“可演示、可理解、可恢复”的顺序推进：
 

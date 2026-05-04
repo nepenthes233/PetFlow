@@ -4,11 +4,17 @@ PetFlow is a Python desktop workflow manager built around a task graph and an in
 
 ## Stack
 
-- Python 3.10-3.12
+- Python 3.12
 - Tkinter
 - JSON persistence
-- requests / httpx for API integration
+- requests for API integration
 - Pillow for image assets
+
+The current codebase is the baseline for team development and is documented in:
+
+- `docs/architecture.md`
+- `docs/development.md`
+- `docs/roadmap.md`
 
 ## Project layout
 
@@ -45,9 +51,10 @@ conda env create -f environment.yml
 conda activate petflow
 ```
 
-Run core tests with the standard library:
+Run core checks with the standard library:
 
 ```bash
+PYTHONPATH=src python -m compileall src tests
 PYTHONPATH=src python -m unittest discover -s tests
 ```
 
@@ -60,10 +67,11 @@ More collaboration rules are documented in `docs/development.md`.
 - Dependency cycle rejection with Routine / Recommendation / Trigger edge support.
 - Workspace navigation: layout, zoom, pan, reset view.
 - Node detail fields: tags, actual time, resource type/path, checklist, attachments.
-- Local recommendation engine with dependency checks, Routine due weighting, and reasons.
+- Local recommendation engine with dependency checks, Routine weighting, and reasons.
 - In-graph pet assistant with speech bubbles and lightweight movement animation.
 - Agent graph generation and node splitting with mock/API mode and structured preview.
 - Review summary, clipboard capture, resource copy, and focus mode fallback.
+- JSON sample graph for demos and regression checks.
 
 ## Demo flow
 
@@ -74,3 +82,10 @@ More collaboration rules are documented in `docs/development.md`.
 5. Use `Agent` to generate or split a task graph; mock mode works without an API key.
 6. Select a Resource node and use `Copy Resource`.
 7. Open `Review` for a local progress summary.
+
+## Team workflow
+
+- Keep `main` green.
+- Use feature branches for one focused change at a time.
+- Update tests when changing domain rules or JSON fields.
+- Keep `data/settings.json` local and uncommitted.
