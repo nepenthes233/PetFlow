@@ -109,7 +109,7 @@
       "source": "node_start",
       "target": "node_middle",
       "type": "dependency",
-      "label": "",
+      "label": "start before UI",
       "weight": 1.0,
       "metadata": {}
     },
@@ -118,7 +118,7 @@
       "source": "node_middle",
       "target": "node_end",
       "type": "recommendation",
-      "label": "",
+      "label": "reward after milestone",
       "weight": 1.0,
       "metadata": {}
     }

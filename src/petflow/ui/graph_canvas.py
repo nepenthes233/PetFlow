@@ -205,7 +205,7 @@ class GraphCanvas(tk.Canvas):
         label = self.create_text(
             (start_x + end_x) / 2,
             (start_y + end_y) / 2 - 12,
-            text=edge.type.value,
+            text=self._edge_label_text(edge),
             fill=color,
             font=("Arial", 8),
             tags=("edge", f"edge:{edge.id}"),
@@ -374,6 +374,7 @@ class GraphCanvas(tk.Canvas):
                 self._edge_start_node_id,
                 node_id,
                 dialog.result["type"],
+                label=str(dialog.result["label"]),
             )
             self._selected_edge_id = None
             self.cancel_edge_mode()
@@ -398,6 +399,12 @@ class GraphCanvas(tk.Canvas):
         if len(text) <= max_chars:
             return text
         return text[: max_chars - 1] + "..."
+
+    @classmethod
+    def _edge_label_text(cls, edge: Edge) -> str:
+        if edge.label:
+            return cls._fit_text(edge.label, 28)
+        return edge.type.value
 
     @staticmethod
     def _node_fill(node: Node) -> str:

@@ -31,4 +31,5 @@ class AgentExecutor:
                     edge_type=EdgeType(
                         edge_data.get("type", EdgeType.DEPENDENCY.value)
                     ),
+                    label=edge_data.get("label", ""),
                 )

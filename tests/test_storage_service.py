@@ -29,7 +29,12 @@ class StorageServiceTest(unittest.TestCase):
             x=320,
             y=160,
         )
-        context.graph_service.create_edge(first.id, second.id, EdgeType.DEPENDENCY)
+        context.graph_service.create_edge(
+            first.id,
+            second.id,
+            EdgeType.DEPENDENCY,
+            label="blocks",
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "graph.json"
@@ -49,6 +54,7 @@ class StorageServiceTest(unittest.TestCase):
         self.assertEqual(len(loaded.edges), 1)
         edge = next(iter(loaded.edges.values()))
         self.assertEqual(edge.type, EdgeType.DEPENDENCY)
+        self.assertEqual(edge.label, "blocks")
 
 
 if __name__ == "__main__":

@@ -111,13 +111,18 @@ class GraphService:
         self,
         source: str,
         target: str,
-        edge_type: EdgeType = EdgeType.DEPENDENCY,
+        edge_type: EdgeType | str = EdgeType.DEPENDENCY,
+        label: object = "",
     ) -> Edge:
+        edge_type = self._coerce_edge_type(edge_type)
+        label = self._normalize_edge_label(label)
+        self._validate_edge_label(label)
         edge = Edge(
             id=self.id_generator.edge_id(),
             source=source,
             target=target,
             type=edge_type,
+            label=label,
         )
         self.graph.add_edge(edge)
         self._publish(EventType.EDGE_ADDED, {"edge_id": edge.id})
@@ -128,8 +133,14 @@ class GraphService:
         self._publish(EventType.EDGE_REMOVED, {"edge_id": edge_id})
 
     def update_edge(self, edge_id: str, **changes: object) -> Edge:
-        if "type" in changes and not isinstance(changes["type"], EdgeType):
-            changes["type"] = EdgeType(str(changes["type"]))
+        if self.graph.get_edge(edge_id) is None:
+            raise GraphValidationError(f"Missing edge: {edge_id}")
+        if "type" in changes:
+            changes["type"] = self._coerce_edge_type(changes["type"])
+        if "label" in changes:
+            label = self._normalize_edge_label(changes["label"])
+            self._validate_edge_label(label)
+            changes["label"] = label
         edge = self.graph.update_edge(edge_id, **changes)
         self._publish(EventType.EDGE_UPDATED, {"edge_id": edge_id})
         return edge
@@ -156,3 +167,23 @@ class GraphService:
             raise GraphValidationError("Node priority must be between 1 and 5.")
         if estimated_minutes < 0:
             raise GraphValidationError("Estimated minutes cannot be negative.")
+
+    @staticmethod
+    def _coerce_edge_type(value: object) -> EdgeType:
+        if isinstance(value, EdgeType):
+            return value
+        try:
+            return EdgeType(str(value))
+        except ValueError as exc:
+            raise GraphValidationError(f"Invalid edge type: {value}") from exc
+
+    @staticmethod
+    def _validate_edge_label(label: str) -> None:
+        if len(label) > 80:
+            raise GraphValidationError("Edge label must be 80 characters or fewer.")
+
+    @staticmethod
+    def _normalize_edge_label(label: object) -> str:
+        if label is None:
+            return ""
+        return str(label).strip()

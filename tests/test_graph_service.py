@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from petflow.app import AppContext
-from petflow.domain import GraphValidationError, NodeStatus, NodeType
+from petflow.domain import EdgeType, GraphValidationError, NodeStatus, NodeType
 
 
 class GraphServiceTest(unittest.TestCase):
@@ -54,6 +54,46 @@ class GraphServiceTest(unittest.TestCase):
         self.assertEqual(updated.title, "Updated")
         self.assertEqual(updated.type, NodeType.ROUTINE)
         self.assertEqual(updated.status, NodeStatus.PAUSED)
+
+    def test_create_edge_stores_type_and_trimmed_label(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="First")
+        second = context.graph_service.create_node(title="Second")
+
+        edge = context.graph_service.create_edge(
+            first.id,
+            second.id,
+            EdgeType.TRIGGER,
+            label="  unlocks next task  ",
+        )
+
+        self.assertEqual(edge.source, first.id)
+        self.assertEqual(edge.target, second.id)
+        self.assertEqual(edge.type, EdgeType.TRIGGER)
+        self.assertEqual(edge.label, "unlocks next task")
+
+    def test_update_edge_stores_type_and_trimmed_label(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="First")
+        second = context.graph_service.create_node(title="Second")
+        edge = context.graph_service.create_edge(first.id, second.id)
+
+        updated = context.graph_service.update_edge(
+            edge.id,
+            type=EdgeType.RECOMMENDATION.value,
+            label="  read before starting  ",
+        )
+
+        self.assertEqual(updated.type, EdgeType.RECOMMENDATION)
+        self.assertEqual(updated.label, "read before starting")
+
+    def test_edge_label_length_is_limited(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="First")
+        second = context.graph_service.create_node(title="Second")
+
+        with self.assertRaises(GraphValidationError):
+            context.graph_service.create_edge(first.id, second.id, label="x" * 81)
 
 
 if __name__ == "__main__":
