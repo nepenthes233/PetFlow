@@ -71,6 +71,7 @@ class AgentClient:
         return "Agent API responded with valid JSON."
 
     def parse_json(self, content: str) -> dict[str, Any]:
+        content = self._normalize_json_content(content)
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as exc:
@@ -184,9 +185,19 @@ class AgentClient:
 
     @staticmethod
     def _extract_responses_content(data: dict[str, Any]) -> str:
+        error = data.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("code") or error.get("type")
+            if isinstance(message, str) and message.strip():
+                raise GraphValidationError(f"Agent API returned an error: {message}")
+
+        if AgentClient._looks_like_agent_json(data):
+            return json.dumps(data)
+
         output_text = data.get("output_text")
         if isinstance(output_text, str) and output_text.strip():
             return output_text
+
         output = data.get("output")
         if isinstance(output, list):
             for item in output:
@@ -208,10 +219,90 @@ class AgentClient:
                     output_text = content_item.get("output_text")
                     if isinstance(output_text, str) and output_text.strip():
                         return output_text
+
         choices = data.get("choices")
         if isinstance(choices, list):
-            return AgentClient._extract_message_content({"choices": choices})
-        raise GraphValidationError("Agent API response missing response content.")
+            try:
+                return AgentClient._extract_message_content({"choices": choices})
+            except GraphValidationError:
+                pass
+
+        json_text = AgentClient._find_json_text(data)
+        if json_text:
+            return json_text
+
+        summary = AgentClient._response_summary(data)
+        raise GraphValidationError(
+            f"Agent API response missing response content. {summary}"
+        )
+
+    @staticmethod
+    def _normalize_json_content(content: str) -> str:
+        stripped = content.strip()
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            if len(lines) >= 3 and lines[-1].strip().startswith("```"):
+                stripped = "\n".join(lines[1:-1]).strip()
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end > start:
+            return stripped[start : end + 1]
+        return stripped
+
+    @staticmethod
+    def _looks_like_agent_json(value: dict[str, Any]) -> bool:
+        return any(key in value for key in ("ok", "nodes", "edges"))
+
+    @staticmethod
+    def _find_json_text(value: object) -> str | None:
+        if isinstance(value, str):
+            text = AgentClient._normalize_json_content(value)
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(parsed, dict):
+                return text
+            return None
+        if isinstance(value, dict):
+            for key in ("output_text", "text", "content", "message", "result", "response"):
+                found = AgentClient._find_json_text(value.get(key))
+                if found:
+                    return found
+            for child in value.values():
+                found = AgentClient._find_json_text(child)
+                if found:
+                    return found
+        if isinstance(value, list):
+            for child in value:
+                found = AgentClient._find_json_text(child)
+                if found:
+                    return found
+        return None
+
+    @staticmethod
+    def _response_summary(data: dict[str, Any]) -> str:
+        keys = ", ".join(str(key) for key in list(data.keys())[:8]) or "<none>"
+        parts = [f"top-level keys: {keys}"]
+        status = data.get("status")
+        if isinstance(status, str) and status:
+            parts.append(f"status: {status}")
+        incomplete_details = data.get("incomplete_details")
+        if isinstance(incomplete_details, dict):
+            reason = incomplete_details.get("reason")
+            if isinstance(reason, str) and reason:
+                parts.append(f"incomplete reason: {reason}")
+        output = data.get("output")
+        if isinstance(output, list):
+            output_types = [
+                str(item.get("type"))
+                for item in output
+                if isinstance(item, dict) and item.get("type")
+            ]
+            if output_types:
+                parts.append(f"output types: {', '.join(output_types[:6])}")
+            parts.append(f"output count: {len(output)}")
+        return "; ".join(parts)
 
     @staticmethod
     def _mock_response(prompt: str) -> dict[str, Any]:

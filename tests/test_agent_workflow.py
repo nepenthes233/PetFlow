@@ -255,6 +255,55 @@ class AgentWorkflowTest(unittest.TestCase):
 
         self.assertEqual(proposal["nodes"][0]["title"], "Task")
 
+    def test_client_parses_responses_direct_json_object(self) -> None:
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {"ok": True}
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        self.assertEqual(client.test_connection(), "Agent API is reachable.")
+
+    def test_client_reports_responses_shape_when_content_missing(self) -> None:
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {
+                    "id": "resp_test",
+                    "status": "completed",
+                    "output": [{"type": "message", "content": []}],
+                }
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="test-key",
+            wire_api="responses",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        with self.assertRaisesRegex(
+            GraphValidationError,
+            "top-level keys: id, status, output; status: completed; "
+            "output types: message; output count: 1",
+        ):
+            client.test_connection()
+
     def test_executor_applies_proposal(self) -> None:
         context = AppContext.create()
         executor = AgentExecutor(context.graph_service)
