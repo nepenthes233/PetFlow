@@ -1,0 +1,140 @@
+{
+  "_comment": "演示样例图 — 覆盖主要功能路径，用于演示脚本和新用户引导",
+  "_schema_version": "1.0",
+  "_owned_by": "data/sample_graph.json，通过 StorageService.load_sample() 加载",
+  "_note": "此文件可提交到仓库，不含敏感信息",
+
+  "schema_version": "1.0",
+  "saved_at": "2026-05-21T09:00:00",
+
+  "nodes": [
+    {
+      "id": "demo_001", "type": "task",
+      "title": "确定需求与分工", "description": "三人讨论功能范围和模块边界",
+      "status": "done", "priority": 5, "estimated_minutes": 60, "actual_minutes": 55,
+      "created_at": "2026-05-18T09:00:00", "updated_at": "2026-05-18T10:00:00",
+      "completed_at": "2026-05-18T10:00:00",
+      "x": 120, "y": 200, "tags": ["计划", "MVP"], "attachments": []
+    },
+    {
+      "id": "demo_002", "type": "task",
+      "title": "设计数据结构", "description": "定义 Node、Edge、GraphModel 数据类和枚举",
+      "status": "done", "priority": 5, "estimated_minutes": 90, "actual_minutes": 95,
+      "created_at": "2026-05-18T10:00:00", "updated_at": "2026-05-19T09:00:00",
+      "completed_at": "2026-05-19T09:00:00",
+      "x": 320, "y": 200, "tags": ["domain", "MVP"], "attachments": []
+    },
+    {
+      "id": "demo_003", "type": "task",
+      "title": "实现图编辑界面", "description": "绘制节点、边，支持拖拽和右键菜单",
+      "status": "doing", "priority": 4, "estimated_minutes": 180, "actual_minutes": 0,
+      "created_at": "2026-05-19T09:00:00", "updated_at": "2026-05-21T09:00:00",
+      "completed_at": null,
+      "x": 520, "y": 120, "tags": ["GUI", "MVP"], "attachments": []
+    },
+    {
+      "id": "demo_004", "type": "task",
+      "title": "实现桌宠交互", "description": "桌宠绘制、推荐响应、气泡提示",
+      "status": "todo", "priority": 3, "estimated_minutes": 120, "actual_minutes": 0,
+      "created_at": "2026-05-19T09:00:00", "updated_at": "2026-05-19T09:00:00",
+      "completed_at": null,
+      "x": 520, "y": 300, "tags": ["pet", "MVP"], "attachments": []
+    },
+    {
+      "id": "demo_005", "type": "task",
+      "title": "实现 Agent 拆任务", "description": "LLM API 接入、节点拆分和图生成预览",
+      "status": "todo", "priority": 3, "estimated_minutes": 150, "actual_minutes": 0,
+      "created_at": "2026-05-19T09:00:00", "updated_at": "2026-05-19T09:00:00",
+      "completed_at": null,
+      "x": 520, "y": 480, "tags": ["agent"], "attachments": []
+    },
+    {
+      "id": "demo_006", "type": "checkpoint",
+      "title": "UI 联调与 MVP 验收", "description": "三个模块合并，确保核心功能可演示",
+      "status": "todo", "priority": 5, "estimated_minutes": 60, "actual_minutes": 0,
+      "created_at": "2026-05-19T09:00:00", "updated_at": "2026-05-19T09:00:00",
+      "completed_at": null,
+      "x": 750, "y": 300, "tags": ["里程碑"], "attachments": [],
+      "checklist": [
+        { "item": "节点增删改查", "done": false },
+        { "item": "依赖成环检测", "done": false },
+        { "item": "桌宠响应推荐", "done": false },
+        { "item": "保存加载", "done": false }
+      ]
+    },
+    {
+      "id": "demo_007", "type": "routine",
+      "title": "每日代码提交", "description": "每天至少 commit 一次",
+      "status": "todo", "priority": 4, "estimated_minutes": 10, "actual_minutes": 0,
+      "created_at": "2026-05-18T09:00:00", "updated_at": "2026-05-21T08:00:00",
+      "completed_at": null,
+      "x": 120, "y": 420, "tags": ["习惯"], "attachments": [],
+      "routine": {
+        "recurrence": "daily", "interval_days": 1,
+        "last_completed_at": "2026-05-20T23:00:00",
+        "next_due_at": "2026-05-21T23:59:00",
+        "streak": 3
+      }
+    },
+    {
+      "id": "demo_008", "type": "resource",
+      "title": "架构设计规范", "description": "团队开发规范文档",
+      "status": "todo", "priority": 3, "estimated_minutes": 0, "actual_minutes": 0,
+      "created_at": "2026-05-18T09:00:00", "updated_at": "2026-05-18T09:00:00",
+      "completed_at": null,
+      "x": 120, "y": 560, "tags": ["参考"], "attachments": [],
+      "resource": {
+        "url": "", "file_paths": ["docs/architecture.md"], "content_type": "file"
+      }
+    },
+    {
+      "id": "demo_009", "type": "task",
+      "title": "录制演示视频", "description": "按演示脚本录制并剪辑",
+      "status": "todo", "priority": 3, "estimated_minutes": 60, "actual_minutes": 0,
+      "created_at": "2026-05-19T09:00:00", "updated_at": "2026-05-19T09:00:00",
+      "completed_at": null,
+      "x": 950, "y": 200, "tags": ["交付"], "attachments": []
+    },
+    {
+      "id": "demo_010", "type": "reward",
+      "title": "庆功奶茶", "description": "项目完成后全组喝奶茶",
+      "status": "todo", "priority": 1, "estimated_minutes": 30, "actual_minutes": 0,
+      "created_at": "2026-05-19T09:00:00", "updated_at": "2026-05-19T09:00:00",
+      "completed_at": null,
+      "x": 950, "y": 420, "tags": ["奖励"], "attachments": []
+    }
+  ],
+
+  "edges": [
+    { "id": "demo_e001", "source": "demo_001", "target": "demo_002", "type": "dependency", "label": "" },
+    { "id": "demo_e002", "source": "demo_002", "target": "demo_003", "type": "dependency", "label": "" },
+    { "id": "demo_e003", "source": "demo_002", "target": "demo_004", "type": "dependency", "label": "" },
+    { "id": "demo_e004", "source": "demo_002", "target": "demo_005", "type": "dependency", "label": "" },
+    { "id": "demo_e005", "source": "demo_003", "target": "demo_006", "type": "dependency", "label": "" },
+    { "id": "demo_e006", "source": "demo_004", "target": "demo_006", "type": "dependency", "label": "" },
+    { "id": "demo_e007", "source": "demo_005", "target": "demo_006", "type": "dependency", "label": "" },
+    { "id": "demo_e008", "source": "demo_006", "target": "demo_009", "type": "dependency", "label": "" },
+    { "id": "demo_e009", "source": "demo_006", "target": "demo_010", "type": "trigger",    "label": "完成后解锁" },
+    { "id": "demo_e010", "source": "demo_007", "target": "demo_007", "type": "routine",    "label": "每日循环" },
+    { "id": "demo_e011", "source": "demo_001", "target": "demo_008", "type": "recommendation", "label": "建议阅读" }
+  ],
+
+  "pet": {
+    "current_node_id": "demo_003",
+    "state": "idle",
+    "x": 470,
+    "y": 90,
+    "bubble_text": "图编辑界面冲起来！"
+  },
+
+  "workspace": {
+    "selected_node_id": null,
+    "zoom": 1.0,
+    "pan_x": 0,
+    "pan_y": 0,
+    "focus_mode": false,
+    "focus_node_id": null
+  },
+
+  "history": []
+}

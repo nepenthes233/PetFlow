@@ -1,0 +1,14 @@
+name: petflow
+channels:
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/msys2/
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/r/
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - tk
+  - requests
+  - pillow
+  - pip:
+      - ruff>=0.6.0

@@ -1,0 +1,175 @@
+{
+  "_comment": "EventBus 事件结构定义 — 覆盖所有模块间通信事件",
+  "_schema_version": "1.0",
+  "_owned_by": "app/event_bus.py 分发，各服务订阅",
+  "_note": "此文件仅作接口文档用途，运行时事件以 Python dict 传递",
+
+  "schema_version": "1.0",
+
+  "events": {
+
+    "NODE_UPDATED": {
+      "_publisher": "GraphService.update_node() / update_node_status()",
+      "_subscribers": ["PetService", "RecommendationEngine", "UI/GraphCanvas"],
+      "payload": {
+        "node_id": "node_003",
+        "changed_fields": ["status", "actual_minutes"],
+        "previous_status": "doing",
+        "new_status": "done",
+        "timestamp": "2026-05-21T10:30:00"
+      }
+    },
+
+    "NODE_CREATED": {
+      "_publisher": "GraphService.create_node() / AgentExecutor (via GraphService)",
+      "_subscribers": ["UI/GraphCanvas", "StorageService"],
+      "payload": {
+        "node_id": "node_011",
+        "node_type": "task",
+        "source": "user",
+        "_comment_source": "可选值: user | agent | clipboard"
+      }
+    },
+
+    "NODE_DELETED": {
+      "_publisher": "GraphService.delete_node()",
+      "_subscribers": ["UI/GraphCanvas", "PetService"],
+      "payload": {
+        "node_id": "node_003",
+        "deleted_edge_ids": ["edge_005", "edge_006"]
+      }
+    },
+
+    "EDGE_CREATED": {
+      "_publisher": "GraphService.create_edge()",
+      "_subscribers": ["UI/GraphCanvas"],
+      "payload": {
+        "edge_id": "edge_007",
+        "source": "node_003",
+        "target": "node_006",
+        "edge_type": "dependency"
+      }
+    },
+
+    "EDGE_DELETED": {
+      "_publisher": "GraphService.delete_edge()",
+      "_subscribers": ["UI/GraphCanvas"],
+      "payload": {
+        "edge_id": "edge_007"
+      }
+    },
+
+    "RECOMMENDATION_READY": {
+      "_publisher": "RecommendationEngine.recommend()",
+      "_subscribers": ["PetService", "UI/MainWindow (状态栏)"],
+      "payload": {
+        "recommended_node_id": "node_003",
+        "score": 74,
+        "reason": {
+          "prerequisites_done": true,
+          "is_highest_priority": true,
+          "routine_overdue": false,
+          "long_blocked": false
+        }
+      }
+    },
+
+    "PET_MOVED": {
+      "_publisher": "PetService (监听 NODE_UPDATED 后触发)",
+      "_subscribers": ["UI/PetView"],
+      "payload": {
+        "from_node_id": "node_001",
+        "to_node_id": "node_003",
+        "bubble_text": "前置搞定了！图编辑界面等你来啃，冲！",
+        "new_state": "move"
+      }
+    },
+
+    "CLIPBOARD_CAPTURED": {
+      "_publisher": "system/ClipboardWatcher",
+      "_subscribers": ["UI/MainWindow (弹窗确认)", "GraphService (确认后写入)"],
+      "payload": {
+        "content": "https://docs.python.org/3/library/tkinter.html",
+        "content_type": "url",
+        "_comment_content_type": "可选值: url | file_path | text | code",
+        "captured_at": "2026-05-21T10:15:00"
+      }
+    },
+
+    "AGENT_PROPOSAL_READY": {
+      "_publisher": "agent/AgentExecutor (LLM 返回并通过字段校验后)",
+      "_subscribers": ["UI/AgentDialog (展示预览，等待用户确认)"],
+      "payload": {
+        "task_type": "node_splitting",
+        "target_node_id": "node_003",
+        "proposal": {
+          "_comment": "此处内容为 node_splitting_output.json 的完整结构",
+          "schema_version": "1.0",
+          "nodes": [],
+          "edges": []
+        },
+        "validation_passed": true,
+        "validation_errors": []
+      }
+    },
+
+    "AGENT_PROPOSAL_ACCEPTED": {
+      "_publisher": "UI/AgentDialog (用户点击确认)",
+      "_subscribers": ["agent/AgentExecutor (执行写入 GraphService)"],
+      "payload": {
+        "task_type": "node_splitting",
+        "target_node_id": "node_003"
+      }
+    },
+
+    "AGENT_PROPOSAL_REJECTED": {
+      "_publisher": "UI/AgentDialog (用户点击取消)",
+      "_subscribers": ["agent/AgentExecutor (清理 proposal 缓存)"],
+      "payload": {
+        "task_type": "node_splitting",
+        "reason": "user_cancelled"
+      }
+    },
+
+    "ROUTINE_DUE": {
+      "_publisher": "services/RoutineService (定时检查)",
+      "_subscribers": ["PetService", "UI/GraphCanvas (高亮节点)"],
+      "payload": {
+        "node_id": "demo_007",
+        "title": "每日代码提交",
+        "next_due_at": "2026-05-21T23:59:00",
+        "overdue": false
+      }
+    },
+
+    "FOCUS_DEVIATION_DETECTED": {
+      "_publisher": "system/FocusMonitor (选做)",
+      "_subscribers": ["PetService", "UI (弹窗提醒)"],
+      "payload": {
+        "focus_node_id": "node_003",
+        "deviated_window": "哔哩哔哩",
+        "duration_seconds": 120
+      }
+    },
+
+    "GRAPH_SAVED": {
+      "_publisher": "StorageService.save()",
+      "_subscribers": ["UI/MainWindow (状态栏提示)"],
+      "payload": {
+        "path": "data/graph.json",
+        "saved_at": "2026-05-21T10:30:00"
+      }
+    },
+
+    "GRAPH_LOADED": {
+      "_publisher": "StorageService.load()",
+      "_subscribers": ["UI/GraphCanvas (重绘)", "PetService (重置状态)"],
+      "payload": {
+        "path": "data/graph.json",
+        "node_count": 10,
+        "edge_count": 11
+      }
+    }
+
+  }
+}

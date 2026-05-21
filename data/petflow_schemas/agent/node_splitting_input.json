@@ -1,0 +1,47 @@
+{
+  "_comment": "Agent 接口契约 — 节点智能拆分 input (task_type: node_splitting)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/prompt_builder.py → agent/agent_client.py",
+  "_validated_by": "agent/agent_executor.py",
+
+  "schema_version": "1.0",
+  "task_type": "node_splitting",
+
+  "target_node": {
+    "id": "node_003",
+    "type": "task",
+    "title": "实现图编辑界面",
+    "description": "绘制节点、边并支持拖拽",
+    "priority": 4,
+    "estimated_minutes": 180,
+    "tags": ["GUI", "MVP"]
+  },
+
+  "context": {
+    "prerequisites": [
+      { "id": "node_002", "title": "设计数据结构", "status": "done" }
+    ],
+    "postrequisites": [
+      { "id": "node_007", "title": "录制演示视频", "status": "todo" }
+    ],
+    "sibling_nodes": [
+      { "id": "node_004", "title": "实现桌宠交互", "status": "todo" }
+    ]
+  },
+
+  "constraints": {
+    "min_subtasks": 3,
+    "max_subtasks": 6,
+    "preserve_target_node": false,
+    "_comment_preserve": "false 表示拆分后原节点由 AgentExecutor 决定是否保留或替换"
+  },
+
+  "rules": [
+    "返回严格 JSON，不要包含任何 Markdown 代码块或额外说明文字",
+    "子节点 id 必须以 'agent_split_' 前缀开头",
+    "子节点之间如有顺序依赖，用 dependency 边连接",
+    "子节点不得引用 prerequisites 或 postrequisites 中的已有节点 id",
+    "每个子节点必须包含 id、type、title、description、priority、estimated_minutes",
+    "所有子节点 estimated_minutes 之和应接近目标节点的 estimated_minutes"
+  ]
+}

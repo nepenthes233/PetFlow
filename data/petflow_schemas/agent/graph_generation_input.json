@@ -1,0 +1,33 @@
+{
+  "_comment": "Agent 接口契约 — 自然语言生成任务图 (task_type: graph_generation)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/prompt_builder.py → agent/agent_client.py",
+  "_validated_by": "agent/agent_executor.py",
+
+  "schema_version": "1.0",
+  "task_type": "graph_generation",
+
+  "user_goal": "我想两周内完成一个 Python 桌宠任务图项目，需要图编辑、桌宠、Agent 拆任务、演示视频和报告。",
+
+  "context": {
+    "existing_node_ids": ["node_001", "node_002"],
+    "existing_node_titles": ["确定需求", "设计数据结构"],
+    "canvas_width": 1200,
+    "canvas_height": 800
+  },
+
+  "constraints": {
+    "max_nodes": 12,
+    "allowed_node_types": ["task", "routine", "resource", "checkpoint", "reward"],
+    "allowed_edge_types": ["dependency", "routine", "recommendation", "trigger"],
+    "require_layout_hints": true
+  },
+
+  "rules": [
+    "返回严格 JSON，不要包含任何 Markdown 代码块或额外说明文字",
+    "dependency 边不允许形成环",
+    "每个节点必须包含 id、type、title、priority、estimated_minutes",
+    "id 必须以 'agent_' 前缀开头，避免与现有节点冲突",
+    "layout_hint 使用 layer (0-based 层级) 和 order (同层顺序) 表示，不使用绝对坐标"
+  ]
+}

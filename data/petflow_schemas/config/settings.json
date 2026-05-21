@@ -1,0 +1,52 @@
+{
+  "_comment": "本地运行时配置，此文件被 .gitignore 忽略，不得提交到仓库",
+  "_schema_version": "1.0",
+  "_owned_by": "config.py 读取，agent/agent_client.py 使用",
+  "_fallback_order": [
+    "1. 本文件中的 api_key",
+    "2. 环境变量 PETFLOW_AGENT_API_KEY",
+    "3. 环境变量 IMAGE_API_KEY",
+    "4. mock 模式（api_key 为空时自动降级）"
+  ],
+
+  "schema_version": "1.0",
+
+  "agent": {
+    "api_key": "",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "timeout_seconds": 30,
+    "use_mock": false,
+    "_comment_use_mock": "true 时跳过网络请求，返回固定样例数据，适合无网络演示"
+  },
+
+  "storage": {
+    "graph_path": "data/graph.json",
+    "settings_path": "data/settings.json",
+    "sample_graph_path": "data/sample_graph.json"
+  },
+
+  "ui": {
+    "theme": "default",
+    "canvas_width": 1200,
+    "canvas_height": 800,
+    "node_width": 140,
+    "node_height": 50,
+    "font_family": "Microsoft YaHei",
+    "font_size": 11
+  },
+
+  "clipboard": {
+    "enabled": true,
+    "poll_interval_seconds": 3,
+    "min_text_length_to_capture": 20
+  },
+
+  "focus_monitor": {
+    "enabled": false,
+    "_comment": "选做功能，Windows 专属，依赖 pywin32",
+    "check_interval_seconds": 10,
+    "blacklist_keywords": ["哔哩哔哩", "YouTube", "Steam", "微博"],
+    "whitelist_keywords": ["PyCharm", "VSCode", "Terminal", "文档", "PDF"]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "_comment": "Agent 接口契约 — 桌宠语言生成 output (task_type: pet_speech)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/agent_executor.py 校验后交 PetService 更新 PetState.bubble_text",
+  "_validation_rules": [
+    "message 字段必须存在且为非空字符串",
+    "message 长度不超过 60 个字符（中英混排按字符计）",
+    "如解析失败，PetService 使用本地模板兜底，不阻塞主流程"
+  ],
+
+  "schema_version": "1.0",
+  "task_type": "pet_speech",
+
+  "message": "前置搞定了！图编辑界面等你来啃，冲！"
+}

@@ -1,0 +1,190 @@
+{
+  "_comment": "主图持久化文件 schema — 覆盖所有节点类型和边类型",
+  "_schema_version": "1.0",
+  "_owned_by": "repositories/json_graph_repository.py 读写，services/storage_service.py 调用",
+  "_write_rules": [
+    "所有写入必须通过 GraphService，不得在 UI 或 Agent 中直接 open() 写文件",
+    "节点状态变更通过 GraphService.update_node_status()",
+    "坐标变更通过 GraphService.move_node()",
+    "新增字段必须同步更新 Node.to_dict() / Node.from_dict()"
+  ],
+
+  "schema_version": "1.0",
+  "saved_at": "2026-05-21T10:00:00",
+
+  "nodes": [
+    {
+      "_comment": "--- Task 节点示例 ---",
+      "id": "node_001",
+      "type": "task",
+      "title": "确定需求",
+      "description": "明确功能范围和三人分工",
+      "status": "done",
+      "priority": 5,
+      "estimated_minutes": 60,
+      "actual_minutes": 55,
+      "created_at": "2026-05-20T09:00:00",
+      "updated_at": "2026-05-20T10:05:00",
+      "completed_at": "2026-05-20T10:05:00",
+      "x": 100,
+      "y": 100,
+      "tags": ["计划", "MVP"],
+      "attachments": []
+    },
+    {
+      "_comment": "--- Routine 节点示例 ---",
+      "id": "node_002",
+      "type": "routine",
+      "title": "每日代码提交",
+      "description": "每天至少提交一次，保持仓库活跃",
+      "status": "todo",
+      "priority": 4,
+      "estimated_minutes": 10,
+      "actual_minutes": 0,
+      "created_at": "2026-05-20T09:00:00",
+      "updated_at": "2026-05-21T08:00:00",
+      "completed_at": null,
+      "x": 300,
+      "y": 100,
+      "tags": ["习惯"],
+      "attachments": [],
+      "routine": {
+        "recurrence": "daily",
+        "_comment_recurrence": "可选值: daily | weekly | custom",
+        "interval_days": 1,
+        "last_completed_at": "2026-05-20T23:30:00",
+        "next_due_at": "2026-05-21T23:59:00",
+        "streak": 3
+      }
+    },
+    {
+      "_comment": "--- Resource 节点示例 ---",
+      "id": "node_003",
+      "type": "resource",
+      "title": "Tkinter Canvas 文档",
+      "description": "官方文档和常用 API 参考",
+      "status": "todo",
+      "priority": 2,
+      "estimated_minutes": 0,
+      "actual_minutes": 0,
+      "created_at": "2026-05-20T09:00:00",
+      "updated_at": "2026-05-20T09:00:00",
+      "completed_at": null,
+      "x": 500,
+      "y": 100,
+      "tags": ["参考"],
+      "attachments": [],
+      "resource": {
+        "url": "https://docs.python.org/3/library/tkinter.html",
+        "file_paths": [],
+        "content_type": "url",
+        "_comment_content_type": "可选值: url | file | text | code"
+      }
+    },
+    {
+      "_comment": "--- Checkpoint 节点示例 ---",
+      "id": "node_004",
+      "type": "checkpoint",
+      "title": "MVP 验收",
+      "description": "确认核心功能全部可运行",
+      "status": "todo",
+      "priority": 5,
+      "estimated_minutes": 30,
+      "actual_minutes": 0,
+      "created_at": "2026-05-20T09:00:00",
+      "updated_at": "2026-05-20T09:00:00",
+      "completed_at": null,
+      "x": 700,
+      "y": 100,
+      "tags": ["里程碑"],
+      "attachments": [],
+      "checklist": [
+        { "item": "节点增删改查正常", "done": false },
+        { "item": "边创建和成环检测正常", "done": false },
+        { "item": "保存加载不丢数据", "done": false },
+        { "item": "桌宠响应推荐", "done": false }
+      ]
+    },
+    {
+      "_comment": "--- Reward 节点示例 ---",
+      "id": "node_005",
+      "type": "reward",
+      "title": "刷剧 30 分钟",
+      "description": "完成今天的目标后可以放松一下",
+      "status": "todo",
+      "priority": 1,
+      "estimated_minutes": 30,
+      "actual_minutes": 0,
+      "created_at": "2026-05-20T09:00:00",
+      "updated_at": "2026-05-20T09:00:00",
+      "completed_at": null,
+      "x": 900,
+      "y": 100,
+      "tags": ["奖励"],
+      "attachments": []
+    }
+  ],
+
+  "edges": [
+    {
+      "_comment": "--- Dependency 边示例 ---",
+      "id": "edge_001",
+      "source": "node_001",
+      "target": "node_004",
+      "type": "dependency",
+      "label": ""
+    },
+    {
+      "_comment": "--- Routine 边示例（允许成环）---",
+      "id": "edge_002",
+      "source": "node_002",
+      "target": "node_002",
+      "type": "routine",
+      "label": "每日循环"
+    },
+    {
+      "_comment": "--- Recommendation 边示例 ---",
+      "id": "edge_003",
+      "source": "node_001",
+      "target": "node_003",
+      "type": "recommendation",
+      "label": "建议参考"
+    },
+    {
+      "_comment": "--- Trigger 边示例 ---",
+      "id": "edge_004",
+      "source": "node_004",
+      "target": "node_005",
+      "type": "trigger",
+      "label": "完成后解锁"
+    }
+  ],
+
+  "pet": {
+    "current_node_id": "node_004",
+    "state": "idle",
+    "_comment_state": "可选值: idle | move | happy | angry | think | sleep",
+    "x": 650,
+    "y": 80,
+    "bubble_text": "MVP 验收在等你！"
+  },
+
+  "workspace": {
+    "selected_node_id": null,
+    "zoom": 1.0,
+    "pan_x": 0,
+    "pan_y": 0,
+    "focus_mode": false,
+    "focus_node_id": null
+  },
+
+  "history": [
+    {
+      "timestamp": "2026-05-20T10:05:00",
+      "action": "node_status_changed",
+      "node_id": "node_001",
+      "from_status": "doing",
+      "to_status": "done"
+    }
+  ]
+}

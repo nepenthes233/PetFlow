@@ -1,0 +1,94 @@
+{
+  "_comment": "Agent 接口契约 — 节点智能拆分 output (task_type: node_splitting)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/agent_executor.py 负责校验后交 GraphService 写入",
+  "_validation_rules": [
+    "nodes 中不得出现 prerequisites/postrequisites 里已有节点的 id（防止重复写入）",
+    "edges 只能引用本 output nodes 中的 id",
+    "dependency 边禁止成环",
+    "AgentExecutor 写入后负责把 target_node_id 的后继边重新接到子图末端节点",
+    "写入前必须经用户在 AgentDialog 确认"
+  ],
+
+  "schema_version": "1.0",
+  "task_type": "node_splitting",
+  "target_node_id": "node_003",
+
+  "nodes": [
+    {
+      "id": "agent_split_001",
+      "type": "task",
+      "title": "设计 Canvas 坐标系统",
+      "description": "确定节点、边绘制的坐标规范，定义缩放和平移基准",
+      "priority": 4,
+      "estimated_minutes": 30,
+      "status": "todo",
+      "tags": ["GUI"],
+      "layout_hint": { "layer": 0, "order": 0 }
+    },
+    {
+      "id": "agent_split_002",
+      "type": "task",
+      "title": "绘制任务节点",
+      "description": "用 Canvas 矩形或圆角矩形表示节点，按状态区分颜色",
+      "priority": 4,
+      "estimated_minutes": 30,
+      "status": "todo",
+      "tags": ["GUI"],
+      "layout_hint": { "layer": 1, "order": 0 }
+    },
+    {
+      "id": "agent_split_003",
+      "type": "task",
+      "title": "绘制有向边",
+      "description": "用带箭头的线连接节点，按边类型区分颜色和线型",
+      "priority": 4,
+      "estimated_minutes": 30,
+      "status": "todo",
+      "tags": ["GUI"],
+      "layout_hint": { "layer": 1, "order": 1 }
+    },
+    {
+      "id": "agent_split_004",
+      "type": "task",
+      "title": "实现节点拖拽",
+      "description": "绑定鼠标事件，拖拽时同步更新节点坐标和关联边端点",
+      "priority": 4,
+      "estimated_minutes": 40,
+      "status": "todo",
+      "tags": ["GUI"],
+      "layout_hint": { "layer": 2, "order": 0 }
+    },
+    {
+      "id": "agent_split_005",
+      "type": "task",
+      "title": "实现右键菜单",
+      "description": "节点右键弹出编辑、删除、Agent 拆分等操作菜单",
+      "priority": 3,
+      "estimated_minutes": 25,
+      "status": "todo",
+      "tags": ["GUI"],
+      "layout_hint": { "layer": 3, "order": 0 }
+    },
+    {
+      "id": "agent_split_006",
+      "type": "task",
+      "title": "保存节点坐标",
+      "description": "拖拽结束后通过 GraphService.move_node() 持久化坐标到 JSON",
+      "priority": 3,
+      "estimated_minutes": 25,
+      "status": "todo",
+      "tags": ["GUI"],
+      "layout_hint": { "layer": 3, "order": 1 }
+    }
+  ],
+
+  "edges": [
+    { "source": "agent_split_001", "target": "agent_split_002", "type": "dependency" },
+    { "source": "agent_split_001", "target": "agent_split_003", "type": "dependency" },
+    { "source": "agent_split_002", "target": "agent_split_004", "type": "dependency" },
+    { "source": "agent_split_003", "target": "agent_split_004", "type": "dependency" },
+    { "source": "agent_split_004", "target": "agent_split_005", "type": "dependency" },
+    { "source": "agent_split_004", "target": "agent_split_006", "type": "dependency" }
+  ]
+}

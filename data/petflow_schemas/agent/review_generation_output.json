@@ -1,0 +1,25 @@
+{
+  "_comment": "Agent 接口契约 — 复盘文本生成 output (task_type: review_generation)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/agent_executor.py 校验后交 ReviewService 展示",
+  "_validation_rules": [
+    "summary、highlights、suggestions 三个字段必须存在",
+    "highlights 和 suggestions 必须是数组，且非空",
+    "解析失败时 ReviewService 使用本地模板兜底，不抛出异常"
+  ],
+
+  "schema_version": "1.0",
+  "task_type": "review_generation",
+
+  "summary": "今天完成了需求确认和数据结构设计，专注时间充足，进度符合预期。",
+
+  "highlights": [
+    "连续第 3 天完成每日代码提交，保持了好习惯",
+    "数据结构设计比预计多花了 35 分钟，但提前发现了字段遗漏问题"
+  ],
+
+  "suggestions": [
+    "明天优先推进图编辑界面，预计需要整块时间",
+    "可以把拖拽和绘制拆成两个专注块来完成"
+  ]
+}

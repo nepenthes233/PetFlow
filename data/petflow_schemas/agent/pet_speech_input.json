@@ -1,0 +1,41 @@
+{
+  "_comment": "Agent 接口契约 — 桌宠语言生成 input (task_type: pet_speech)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/prompt_builder.py → agent/agent_client.py",
+  "_caller": "services/pet_service.py 在需要气泡文本时构造此结构",
+  "_note": "本地 RecommendationEngine 先计算结构化数据，PromptBuilder 负责组装 Prompt，不得在调用方预拼自然语言",
+
+  "schema_version": "1.0",
+  "task_type": "pet_speech",
+
+  "persona": "你是一个活泼的桌宠向导，说话简短、有趣，不超过 30 个字",
+
+  "trigger": {
+    "action": "recommend_next",
+    "_comment_actions": "可选值: recommend_next | node_completed | routine_due | focus_deviation | idle_too_long | review_ready"
+  },
+
+  "recommendation_context": {
+    "target_node": {
+      "id": "node_003",
+      "title": "实现图编辑界面",
+      "type": "task",
+      "priority": 4,
+      "estimated_minutes": 180,
+      "status": "todo"
+    },
+    "reason": {
+      "prerequisites_done": true,
+      "is_highest_priority": true,
+      "routine_overdue": false,
+      "long_blocked": false
+    }
+  },
+
+  "rules": [
+    "返回严格 JSON，只包含 message 字段",
+    "message 不超过 30 个汉字",
+    "语气活泼但不夸张",
+    "不要重复节点标题全称，可以用简称或代词"
+  ]
+}

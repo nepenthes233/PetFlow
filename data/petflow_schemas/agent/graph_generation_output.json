@@ -1,0 +1,117 @@
+{
+  "_comment": "Agent 接口契约 — 自然语言生成任务图 output (task_type: graph_generation)",
+  "_schema_version": "1.0",
+  "_owned_by": "agent/agent_executor.py 负责校验此结构后交 GraphService 写入",
+  "_validation_rules": [
+    "所有 edge.source 和 edge.target 必须指向本 output 中存在的节点 id",
+    "dependency 边禁止成环 (由 AgentExecutor 调用 GraphModel.would_create_cycle 检测)",
+    "nodes 不得包含 existing_node_ids 中已有的 id",
+    "写入前必须经用户在 AgentDialog 确认"
+  ],
+
+  "schema_version": "1.0",
+  "task_type": "graph_generation",
+
+  "nodes": [
+    {
+      "id": "agent_gen_001",
+      "type": "task",
+      "title": "确定需求与分工",
+      "description": "明确功能范围、技术选型和三人分工",
+      "priority": 5,
+      "estimated_minutes": 60,
+      "status": "todo",
+      "tags": ["计划", "MVP"],
+      "layout_hint": { "layer": 0, "order": 0 }
+    },
+    {
+      "id": "agent_gen_002",
+      "type": "task",
+      "title": "设计数据结构",
+      "description": "定义 Node、Edge、GraphModel 数据类",
+      "priority": 5,
+      "estimated_minutes": 90,
+      "status": "todo",
+      "tags": ["domain", "MVP"],
+      "layout_hint": { "layer": 1, "order": 0 }
+    },
+    {
+      "id": "agent_gen_003",
+      "type": "task",
+      "title": "实现图编辑界面",
+      "description": "使用 Tkinter Canvas 绘制节点、边，支持拖拽",
+      "priority": 4,
+      "estimated_minutes": 180,
+      "status": "todo",
+      "tags": ["GUI", "MVP"],
+      "layout_hint": { "layer": 2, "order": 0 }
+    },
+    {
+      "id": "agent_gen_004",
+      "type": "task",
+      "title": "实现桌宠交互",
+      "description": "绘制桌宠、推荐响应、气泡提示",
+      "priority": 3,
+      "estimated_minutes": 120,
+      "status": "todo",
+      "tags": ["pet", "MVP"],
+      "layout_hint": { "layer": 2, "order": 1 }
+    },
+    {
+      "id": "agent_gen_005",
+      "type": "task",
+      "title": "实现 Agent 拆任务",
+      "description": "调用 LLM API，实现节点拆分和图生成",
+      "priority": 3,
+      "estimated_minutes": 150,
+      "status": "todo",
+      "tags": ["agent", "MVP"],
+      "layout_hint": { "layer": 2, "order": 2 }
+    },
+    {
+      "id": "agent_gen_006",
+      "type": "checkpoint",
+      "title": "UI 整合与联调",
+      "description": "三个模块合并，确保数据流通顺",
+      "priority": 4,
+      "estimated_minutes": 90,
+      "status": "todo",
+      "tags": ["集成"],
+      "layout_hint": { "layer": 3, "order": 0 }
+    },
+    {
+      "id": "agent_gen_007",
+      "type": "task",
+      "title": "录制演示视频",
+      "description": "按演示脚本录制并剪辑",
+      "priority": 3,
+      "estimated_minutes": 60,
+      "status": "todo",
+      "tags": ["交付"],
+      "layout_hint": { "layer": 4, "order": 0 }
+    },
+    {
+      "id": "agent_gen_008",
+      "type": "task",
+      "title": "撰写项目报告",
+      "description": "总结架构设计、功能亮点和分工说明",
+      "priority": 3,
+      "estimated_minutes": 90,
+      "status": "todo",
+      "tags": ["交付"],
+      "layout_hint": { "layer": 4, "order": 1 }
+    }
+  ],
+
+  "edges": [
+    { "source": "agent_gen_001", "target": "agent_gen_002", "type": "dependency" },
+    { "source": "agent_gen_002", "target": "agent_gen_003", "type": "dependency" },
+    { "source": "agent_gen_002", "target": "agent_gen_004", "type": "dependency" },
+    { "source": "agent_gen_002", "target": "agent_gen_005", "type": "dependency" },
+    { "source": "agent_gen_003", "target": "agent_gen_006", "type": "dependency" },
+    { "source": "agent_gen_004", "target": "agent_gen_006", "type": "dependency" },
+    { "source": "agent_gen_005", "target": "agent_gen_006", "type": "dependency" },
+    { "source": "agent_gen_006", "target": "agent_gen_007", "type": "dependency" },
+    { "source": "agent_gen_006", "target": "agent_gen_008", "type": "dependency" }
+  ]
+}
