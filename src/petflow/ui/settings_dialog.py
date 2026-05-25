@@ -62,18 +62,34 @@ class SettingsDialog(tk.Toplevel):
             width=46,
         ).grid(row=3, column=1, sticky="ew", pady=(0, 8))
 
+        ttk.Button(
+            body,
+            text="Use DeepSeek Defaults",
+            command=self._use_deepseek_defaults,
+        ).grid(row=4, column=1, sticky="w", pady=(0, 6))
+        ttk.Label(
+            body,
+            text=(
+                "OpenAI-compatible providers are supported. DeepSeek uses "
+                "chat_completions with base URL https://api.deepseek.com. "
+                "For DeepSeek, Test API probes model deepseek-v4-flash."
+            ),
+            foreground="#64748b",
+            wraplength=390,
+        ).grid(row=5, column=1, sticky="w", pady=(0, 8))
+
         ttk.Checkbutton(
             body,
             text="Use mock mode",
             variable=self._mock_mode_var,
-        ).grid(row=4, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=6, column=1, sticky="w", pady=(0, 8))
 
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=5, column=0, columnspan=2, sticky="w"
+            row=7, column=0, columnspan=2, sticky="w"
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=6, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=8, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -90,6 +106,12 @@ class SettingsDialog(tk.Toplevel):
             wire_api=self._wire_api_var.get() or "chat_completions",
             mock_mode=bool(self._mock_mode_var.get()),
         )
+
+    def _use_deepseek_defaults(self) -> None:
+        self._base_url_var.set("https://api.deepseek.com")
+        self._model_var.set("deepseek-chat")
+        self._wire_api_var.set("chat_completions")
+        self._mock_mode_var.set(False)
 
     def _test_api(self) -> None:
         settings = self._current_settings()

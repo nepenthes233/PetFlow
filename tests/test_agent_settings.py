@@ -46,6 +46,21 @@ class AgentSettingsTest(unittest.TestCase):
         self.assertEqual(client.wire_api, "responses")
         self.assertFalse(client.mock_mode)
 
+    def test_settings_and_client_strip_credentials_and_base_url(self) -> None:
+        settings = AgentSettings(
+            api_key="  sk-test-last  ",
+            base_url="  https://api.deepseek.com/  ",
+            model=" deepseek-chat ",
+            wire_api=" chat_completions ",
+        )
+
+        client = AgentClient.from_settings(settings)
+
+        self.assertEqual(client.api_key, "sk-test-last")
+        self.assertEqual(client.base_url, "https://api.deepseek.com")
+        self.assertEqual(client.model, "deepseek-chat")
+        self.assertEqual(client.wire_api, "chat_completions")
+
 
 if __name__ == "__main__":
     unittest.main()

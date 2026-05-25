@@ -113,11 +113,13 @@ class GraphServiceTest(unittest.TestCase):
             title="Weekly review",
             node_type=NodeType.ROUTINE,
             repeat_type=RepeatType.WEEKLY,
+            repeat_interval=2,
             next_due_at="2026-05-05T00:00:00+00:00",
             streak=2,
         )
 
         self.assertEqual(node.repeat_type, RepeatType.WEEKLY)
+        self.assertEqual(node.repeat_interval, 2)
         self.assertEqual(node.next_due_at, "2026-05-05T00:00:00+00:00")
         self.assertEqual(node.streak, 2)
 
@@ -243,6 +245,20 @@ class GraphServiceTest(unittest.TestCase):
         completed_at = datetime.fromisoformat(updated.last_completed_at)
         next_due_at = datetime.fromisoformat(updated.next_due_at)
         self.assertEqual((next_due_at - completed_at).days, 2)
+        self.assertEqual(updated.status, NodeStatus.TODO)
+
+    def test_repeated_task_completion_schedules_next_occurrence(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(
+            title="Water plants",
+            repeat_type=RepeatType.WEEKLY,
+            repeat_interval=1,
+        )
+
+        updated = context.graph_service.update_node_status(node.id, NodeStatus.DONE)
+
+        self.assertEqual(updated.status, NodeStatus.TODO)
+        self.assertIsNotNone(updated.next_due_at)
 
 
 if __name__ == "__main__":

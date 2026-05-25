@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from petflow.app.event_bus import EventBus
 from petflow.app.graph_service import GraphService
 from petflow.domain.graph import GraphModel
+from petflow.services.agenda_service import AgendaService
 from petflow.services.graph_layout_service import GraphLayoutService
 from petflow.services.pet_service import PetService
 from petflow.services.recommendation_engine import RecommendationEngine
@@ -21,6 +22,7 @@ class AppContext:
     storage_service: StorageService
     recommendation_engine: RecommendationEngine
     graph_layout_service: GraphLayoutService
+    agenda_service: AgendaService
     resource_service: ResourceService
     routine_service: RoutineService
     review_service: ReviewService
@@ -38,6 +40,7 @@ class AppContext:
             storage_service=StorageService(),
             recommendation_engine=recommendation_engine,
             graph_layout_service=GraphLayoutService(),
+            agenda_service=AgendaService(),
             resource_service=ResourceService(),
             routine_service=RoutineService(),
             review_service=ReviewService(),

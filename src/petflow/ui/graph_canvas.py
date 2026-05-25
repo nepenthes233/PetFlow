@@ -1,36 +1,134 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from math import hypot
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox
+from typing import Callable
 
 from petflow.app.app_context import AppContext
 from petflow.domain.entities import Edge, Node
 from petflow.domain.enums import EdgeType, NodeStatus, NodeType
 from petflow.domain.exceptions import PetFlowError
 from petflow.ui.dialogs import EdgeDialog, NodeDialog
-from petflow.ui.pet_view import PetView
+
+Point = tuple[float, float]
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def sample_cubic_bezier(
+    p0: Point, p1: Point, p2: Point, p3: Point, steps: int = 24
+) -> list[Point]:
+    points: list[Point] = []
+    for index in range(steps + 1):
+        value = index / steps
+        inverse = 1.0 - value
+        points.append(
+            (
+                inverse**3 * p0[0]
+                + 3 * inverse**2 * value * p1[0]
+                + 3 * inverse * value**2 * p2[0]
+                + value**3 * p3[0],
+                inverse**3 * p0[1]
+                + 3 * inverse**2 * value * p1[1]
+                + 3 * inverse * value**2 * p2[1]
+                + value**3 * p3[1],
+            )
+        )
+    return points
+
+
+def path_length(points: list[Point]) -> float:
+    return sum(
+        hypot(end[0] - start[0], end[1] - start[1])
+        for start, end in zip(points, points[1:])
+    )
+
+
+def point_at_distance(points: list[Point], distance: float) -> Point:
+    if not points:
+        return (0.0, 0.0)
+    remaining = max(0.0, distance)
+    for start, end in zip(points, points[1:]):
+        segment = hypot(end[0] - start[0], end[1] - start[1])
+        if segment == 0:
+            continue
+        if remaining <= segment:
+            ratio = remaining / segment
+            return (
+                start[0] + (end[0] - start[0]) * ratio,
+                start[1] + (end[1] - start[1]) * ratio,
+            )
+        remaining -= segment
+    return points[-1]
+
+
+def extract_subpath(
+    points: list[Point], start_distance: float, end_distance: float
+) -> list[Point]:
+    if len(points) < 2 or end_distance <= start_distance:
+        return []
+    result = [point_at_distance(points, start_distance)]
+    travelled = 0.0
+    for start, end in zip(points, points[1:]):
+        segment = hypot(end[0] - start[0], end[1] - start[1])
+        travelled += segment
+        if start_distance < travelled < end_distance:
+            result.append(end)
+    result.append(point_at_distance(points, end_distance))
+    return result
+
+
+@dataclass(slots=True)
+class CompletionFlow:
+    source_id: str
+    target_id: str | None
+    edge_id: str | None
+    frame: int = 0
+    total_frames: int = 30
 
 
 class GraphCanvas(tk.Canvas):
-    NODE_WIDTH = 172
-    NODE_HEIGHT = 76
+    NODE_WIDTH = 210
+    NODE_HEIGHT = 104
 
     def __init__(
         self,
         master: tk.Misc,
         context: AppContext,
         font_family: str = "TkDefaultFont",
+        on_graph_changed: Callable[[], None] | None = None,
+        on_attach_file: Callable[[str], None] | None = None,
+        on_copy_resource: Callable[[str], None] | None = None,
+        on_agent_split: Callable[[str], None] | None = None,
+        on_pet_reaction: Callable[[str | None], None] | None = None,
         **kwargs,
     ) -> None:
-        super().__init__(master, bg="#f5f7fb", highlightthickness=0, **kwargs)
+        super().__init__(master, bg="#F6F8FB", highlightthickness=0, **kwargs)
         self.context = context
         self.font_family = font_family
+        self._type_font = tkfont.Font(family=font_family, size=9, weight="bold")
+        self._title_font = tkfont.Font(family=font_family, size=12, weight="bold")
+        self._meta_font = tkfont.Font(family=font_family, size=9)
+        self._badge_font = tkfont.Font(family=font_family, size=8, weight="bold")
+        self.on_graph_changed = on_graph_changed
+        self.on_attach_file = on_attach_file
+        self.on_copy_resource = on_copy_resource
+        self.on_agent_split = on_agent_split
+        self.on_pet_reaction = on_pet_reaction
         self._node_items: dict[str, list[int]] = {}
         self._item_to_node: dict[int, str] = {}
         self._edge_items: dict[str, list[int]] = {}
         self._item_to_edge: dict[int, str] = {}
+        self._label_boxes: list[tuple[float, float, float, float]] = []
         self._selected_node_id: str | None = None
         self._selected_edge_id: str | None = None
+        self._hovered_node_id: str | None = None
+        self._hovered_edge_id: str | None = None
         self._drag_node_id: str | None = None
         self._drag_offset_x = 0.0
         self._drag_offset_y = 0.0
@@ -41,7 +139,8 @@ class GraphCanvas(tk.Canvas):
         self._panning = False
         self._edge_mode = False
         self._edge_start_node_id: str | None = None
-        self._pet_view = PetView(self, self._to_screen)
+        self._completion_flow: CompletionFlow | None = None
+        self._completion_after_id: str | None = None
 
         self.bind("<Button-1>", self._on_click)
         self.bind("<Shift-Button-1>", self._on_pan_start)
@@ -52,10 +151,14 @@ class GraphCanvas(tk.Canvas):
         self.bind("<Button-4>", self._on_mouse_wheel)
         self.bind("<Button-5>", self._on_mouse_wheel)
         self.bind("<Double-Button-1>", self._on_double_click)
+        self.bind("<Motion>", self._on_motion)
+        self.bind("<Leave>", self._on_leave)
         self.bind("<Button-2>", self._on_context_menu)
         self.bind("<Button-3>", self._on_context_menu)
+        self.bind("<Escape>", lambda _event: self.cancel_edge_mode())
         self.bind("<Delete>", self._on_delete_key)
         self.bind("<BackSpace>", self._on_delete_key)
+        self.bind("<Control-0>", lambda _event: self.fit_graph_to_view())
         self.redraw()
 
     def set_context(self, context: AppContext) -> None:
@@ -64,6 +167,13 @@ class GraphCanvas(tk.Canvas):
         self._selected_edge_id = None
         self._edge_mode = False
         self._edge_start_node_id = None
+        self._hovered_node_id = None
+        self._hovered_edge_id = None
+        self._completion_flow = None
+        self._notify_pet_reaction(None)
+        if self._completion_after_id is not None:
+            self.after_cancel(self._completion_after_id)
+            self._completion_after_id = None
         self._panning = False
         self.redraw()
 
@@ -102,6 +212,15 @@ class GraphCanvas(tk.Canvas):
         self._selected_edge_id = None
         self.redraw()
 
+    def begin_edge_from_node(self, node_id: str) -> None:
+        if self.context.graph.get_node(node_id) is None:
+            return
+        self._edge_mode = True
+        self._edge_start_node_id = node_id
+        self._selected_node_id = node_id
+        self._selected_edge_id = None
+        self.redraw()
+
     def cancel_edge_mode(self) -> None:
         self._edge_mode = False
         self._edge_start_node_id = None
@@ -134,6 +253,7 @@ class GraphCanvas(tk.Canvas):
         self._item_to_node.clear()
         self._edge_items.clear()
         self._item_to_edge.clear()
+        self._label_boxes.clear()
 
         if not self.context.graph.nodes:
             self._draw_empty_hint()
@@ -143,7 +263,7 @@ class GraphCanvas(tk.Canvas):
             self._draw_edge(edge)
         for node in self.context.graph.nodes.values():
             self._draw_node(node)
-        self._pet_view.draw(self.context.graph.pet)
+        self._draw_completion_overlay()
 
     def _draw_empty_hint(self) -> None:
         x, y = self._to_screen(80, 40)
@@ -168,51 +288,150 @@ class GraphCanvas(tk.Canvas):
     def _draw_node(self, node: Node) -> None:
         x1, y1 = self._to_screen(node.x, node.y)
         x2, y2 = self._to_screen(node.x + self.NODE_WIDTH, node.y + self.NODE_HEIGHT)
-        fill = self._node_fill(node)
-        outline = "#0f172a" if node.id == self._selected_node_id else "#94a3b8"
-        width = 2 if node.id == self._selected_node_id else 1
-
-        rect = self.create_rectangle(
+        fill, base_outline = self._node_palette(node)
+        recommended_id = self._recommended_node_id()
+        current_id = self.context.graph.workspace.current_node_id
+        emphasized = node.id == recommended_id or (
+            self.context.graph.workspace.focus_mode and node.id == current_id
+        )
+        selected = node.id == self._selected_node_id
+        pulse = self._node_pulse_amount(node.id)
+        inset = -self._scale(pulse)
+        x1 += inset
+        y1 += inset
+        x2 -= inset
+        y2 -= inset
+        outline = "#2563EB" if emphasized else "#93C5FD" if selected else base_outline
+        width = 2 if emphasized else 1.5 if selected else 1
+        shadow = self._rounded_rectangle(
+            x1 + self._scale(1),
+            y1 + self._scale(3),
+            x2 + self._scale(1),
+            y2 + self._scale(3),
+            self._scale(18),
+            fill="#E5E7EB",
+            outline="",
+            tags=("graph", "node", f"node:{node.id}"),
+        )
+        if emphasized or pulse > 0:
+            glow = self._rounded_rectangle(
+                x1 - self._scale(3 + pulse),
+                y1 - self._scale(3 + pulse),
+                x2 + self._scale(3 + pulse),
+                y2 + self._scale(3 + pulse),
+                self._scale(22),
+                fill="#D1FAE5" if self._is_completion_source(node.id) else "#DBEAFE",
+                outline="",
+                tags=("graph", "node", f"node:{node.id}"),
+            )
+            self.tag_lower(glow, shadow)
+        else:
+            glow = None
+        body = self._rounded_rectangle(
             x1,
             y1,
             x2,
             y2,
+            self._scale(18),
             fill=fill,
             outline=outline,
             width=width,
-            tags=("node", f"node:{node.id}"),
+            tags=("graph", "node", f"node:{node.id}"),
         )
         type_text = self.create_text(
-            x1 + self._scale(12),
-            y1 + self._scale(14),
-            text=node.type.value.upper(),
+            x1 + self._scale(14),
+            y1 + self._scale(20),
+            text=self._fit_text_to_width(
+                node.type.value.upper(), self._type_font, self._scale(92)
+            ),
             anchor="w",
-            fill="#475569",
-            font=(self.font_family, 9, "bold"),
-            tags=("node", f"node:{node.id}"),
+            fill="#6B7280",
+            font=self._type_font,
+            tags=("graph", "node", f"node:{node.id}"),
+        )
+        top_meta = self.create_text(
+            x2 - self._scale(14),
+            y1 + self._scale(20),
+            text=f"P{node.priority}  \u00b7  {node.estimated_minutes}m",
+            anchor="e",
+            fill="#6B7280",
+            font=self._meta_font,
+            tags=("graph", "node", f"node:{node.id}"),
         )
         title = self.create_text(
-            x1 + self._scale(12),
-            y1 + self._scale(38),
-            text=self._fit_text(node.title, 22),
+            x1 + self._scale(14),
+            y1 + self._scale(50),
+            text=self._fit_text_to_width(
+                node.title, self._title_font, self._scale(180)
+            ),
             anchor="w",
-            fill="#0f172a",
-            font=(self.font_family, 12, "bold"),
-            tags=("node", f"node:{node.id}"),
+            fill="#111827",
+            font=self._title_font,
+            tags=("graph", "node", f"node:{node.id}"),
+        )
+        badge_text = self._status_text(node)
+        badge_width = min(
+            self._scale(86),
+            self._badge_font.measure(badge_text) + self._scale(18),
+        )
+        badge_fill, badge_fg = self._status_palette(node.status)
+        badge = self._rounded_rectangle(
+            x1 + self._scale(14),
+            y1 + self._scale(70),
+            x1 + self._scale(14) + badge_width,
+            y1 + self._scale(91),
+            self._scale(10),
+            fill=badge_fill,
+            outline="",
+            tags=("graph", "node", f"node:{node.id}"),
         )
         meta = self.create_text(
-            x1 + self._scale(12),
-            y1 + self._scale(60),
-            text=self._node_meta_text(node),
-            anchor="w",
-            fill="#475569",
-            font=(self.font_family, 9),
-            tags=("node", f"node:{node.id}"),
+            x1 + self._scale(14) + badge_width / 2,
+            y1 + self._scale(80),
+            text=self._fit_text_to_width(badge_text, self._badge_font, badge_width - 8),
+            anchor="center",
+            fill=badge_fg,
+            font=self._badge_font,
+            tags=("graph", "node", f"node:{node.id}"),
         )
-        items = [rect, type_text, title, meta]
+        items = [shadow, body, type_text, top_meta, title, badge, meta]
+        if node.id == recommended_id:
+            next_width = self._scale(40)
+            next_badge = self._rounded_rectangle(
+                x2 - self._scale(14) - next_width,
+                y1 + self._scale(70),
+                x2 - self._scale(14),
+                y1 + self._scale(91),
+                self._scale(10),
+                fill="#DBEAFE",
+                outline="",
+                tags=("graph", "node", f"node:{node.id}"),
+            )
+            next_text = self.create_text(
+                x2 - self._scale(14) - next_width / 2,
+                y1 + self._scale(80),
+                text="NEXT",
+                anchor="center",
+                fill="#1D4ED8",
+                font=self._badge_font,
+                tags=("graph", "node", f"node:{node.id}"),
+            )
+            items.extend((next_badge, next_text))
+        if glow is not None:
+            items.insert(0, glow)
         self._node_items[node.id] = items
         for item in items:
             self._item_to_node[item] = node.id
+        self.tag_bind(
+            f"node:{node.id}",
+            "<Enter>",
+            lambda _event, node_id=node.id: self._set_hovered_node(node_id),
+        )
+        self.tag_bind(
+            f"node:{node.id}",
+            "<Leave>",
+            lambda _event, node_id=node.id: self._clear_hovered_node(node_id),
+        )
 
     def _draw_edge(self, edge: Edge) -> None:
         source = self.context.graph.get_node(edge.source)
@@ -220,39 +439,53 @@ class GraphCanvas(tk.Canvas):
         if source is None or target is None:
             return
 
-        start_x, start_y = self._to_screen(
-            source.x + self.NODE_WIDTH,
-            source.y + self.NODE_HEIGHT / 2,
-        )
-        end_x, end_y = self._to_screen(target.x, target.y + self.NODE_HEIGHT / 2)
+        path = self.compute_edge_path(source, target, edge.type)
         color, dash = self._edge_style(edge)
-        width = 3 if edge.id == self._selected_edge_id else 2
+        state = self._edge_visual_state(edge)
+        if state in {"selected-path", "completion-flow"}:
+            color = "#2563EB"
+        elif state == "hover-related":
+            color = "#94A3B8"
+        elif self._hovered_node_id is not None:
+            color = "#E2E8F0"
+        width = 2 if state != "default" else 1.2
 
         line = self.create_line(
-            start_x,
-            start_y,
-            end_x,
-            end_y,
+            *self._flatten_points(path),
             fill=color,
             width=width,
             arrow=tk.LAST,
-            smooth=True,
-            splinesteps=20,
             dash=dash,
-            tags=("edge", f"edge:{edge.id}"),
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND,
+            arrowshape=(8, 10, 3),
+            tags=(
+                "graph",
+                "edge",
+                f"edge:{edge.id}",
+                f"edge-source:{edge.source}",
+                f"edge-target:{edge.target}",
+            ),
         )
-        label = self.create_text(
-            (start_x + end_x) / 2,
-            (start_y + end_y) / 2 - 12,
-            text=self._edge_label_text(edge),
-            fill=color,
-            font=(self.font_family, 8),
-            tags=("edge", f"edge:{edge.id}"),
+        label_items = (
+            self._draw_edge_label(edge, path, state)
+            if self._should_show_edge_label(edge, state)
+            else []
         )
-        items = [line, label]
+        items = [line, *label_items]
         self._edge_items[edge.id] = items
         for item in items:
             self._item_to_edge[item] = edge.id
+        self.tag_bind(
+            f"edge:{edge.id}",
+            "<Enter>",
+            lambda _event, edge_id=edge.id: self._set_hovered_edge(edge_id),
+        )
+        self.tag_bind(
+            f"edge:{edge.id}",
+            "<Leave>",
+            lambda _event, edge_id=edge.id: self._clear_hovered_edge(edge_id),
+        )
 
     def _on_click(self, event: tk.Event) -> None:
         if event.state & 0x0001:
@@ -316,6 +549,44 @@ class GraphCanvas(tk.Canvas):
             return
         self._edit_node(node_id)
 
+    def _on_motion(self, event: tk.Event) -> None:
+        node_id = self._node_id_from_event(event)
+        edge_id = None if node_id is not None else self._edge_id_from_event(event)
+        if node_id == self._hovered_node_id and edge_id == self._hovered_edge_id:
+            return
+        self._hovered_node_id = node_id
+        self._hovered_edge_id = edge_id
+        self.redraw()
+
+    def _on_leave(self, _event: tk.Event) -> None:
+        if self._hovered_node_id is None and self._hovered_edge_id is None:
+            return
+        self._hovered_node_id = None
+        self._hovered_edge_id = None
+        self.redraw()
+
+    def _set_hovered_node(self, node_id: str) -> None:
+        if self._hovered_node_id != node_id:
+            self._hovered_node_id = node_id
+            self._hovered_edge_id = None
+            self.redraw()
+
+    def _clear_hovered_node(self, node_id: str) -> None:
+        if self._hovered_node_id == node_id:
+            self._hovered_node_id = None
+            self.redraw()
+
+    def _set_hovered_edge(self, edge_id: str) -> None:
+        if self._hovered_edge_id != edge_id:
+            self._hovered_edge_id = edge_id
+            self._hovered_node_id = None
+            self.redraw()
+
+    def _clear_hovered_edge(self, edge_id: str) -> None:
+        if self._hovered_edge_id == edge_id:
+            self._hovered_edge_id = None
+            self.redraw()
+
     def _on_context_menu(self, event: tk.Event) -> None:
         node_id = self._node_id_from_event(event)
         edge_id = self._edge_id_from_event(event)
@@ -331,44 +602,66 @@ class GraphCanvas(tk.Canvas):
             menu.add_command(
                 label="Delete Edge", command=lambda: self._delete_edge(edge_id)
             )
+            menu.entryconfigure("Delete Edge", foreground="#DC2626")
             menu.add_command(label="Cancel Edge Mode", command=self.cancel_edge_mode)
             menu.tk_popup(event.x_root, event.y_root)
             return
         if node_id is None:
             return
         self.select_node(node_id)
+        node = self.context.graph.get_node(node_id)
+        if node is None:
+            return
         menu = tk.Menu(self, tearoff=False)
-        menu.add_command(label="Edit Node", command=lambda: self._edit_node(node_id))
-        menu.add_separator()
+        menu.add_command(label="Open / Edit", command=lambda: self._edit_node(node_id))
         menu.add_command(
+            label="Create Edge From This Node",
+            command=lambda: self.begin_edge_from_node(node_id),
+        )
+        menu.add_separator()
+        status_menu = tk.Menu(menu, tearoff=False)
+        status_menu.add_command(
             label="Mark Todo",
             command=lambda: self._mark_node_status(node_id, NodeStatus.TODO),
         )
-        menu.add_command(
+        status_menu.add_command(
             label="Mark Doing",
             command=lambda: self._mark_node_status(node_id, NodeStatus.DOING),
         )
-        menu.add_command(
+        status_menu.add_command(
             label="Mark Done",
             command=lambda: self._mark_node_status(node_id, NodeStatus.DONE),
         )
-        menu.add_command(
+        status_menu.add_command(
             label="Mark Blocked",
             command=lambda: self._mark_node_status(node_id, NodeStatus.BLOCKED),
         )
-        menu.add_command(
+        status_menu.add_command(
             label="Mark Paused",
             command=lambda: self._mark_node_status(node_id, NodeStatus.PAUSED),
         )
+        menu.add_cascade(label="Status", menu=status_menu)
         menu.add_separator()
         menu.add_command(
-            label="Delete Node", command=lambda: self._delete_node(node_id)
+            label="Attach File",
+            command=lambda: self._run_node_action(self.on_attach_file, node_id),
         )
+        if node.type == NodeType.RESOURCE:
+            menu.add_command(
+                label="Copy Resource",
+                command=lambda: self._run_node_action(self.on_copy_resource, node_id),
+            )
+        agent_menu = tk.Menu(menu, tearoff=False)
+        agent_menu.add_command(
+            label="Split Node",
+            command=lambda: self._run_node_action(self.on_agent_split, node_id),
+        )
+        menu.add_cascade(label="Agent", menu=agent_menu)
         menu.add_separator()
         menu.add_command(
-            label="Agent Split",
-            command=lambda: self._open_agent_split(node_id),
+            label="Delete", command=lambda: self._delete_node(node_id)
         )
+        menu.entryconfigure("Delete", foreground="#DC2626")
         menu.tk_popup(event.x_root, event.y_root)
 
     def _on_delete_key(self, _event: tk.Event) -> None:
@@ -381,6 +674,7 @@ class GraphCanvas(tk.Canvas):
         node = self.context.graph.get_node(node_id)
         if node is None:
             return
+        previous_status = node.status
         dialog = NodeDialog(self, node)
         self.wait_window(dialog)
         if dialog.result is None:
@@ -400,10 +694,23 @@ class GraphCanvas(tk.Canvas):
                 resource_path=str(dialog.result["resource_path"]),
                 checklist=dialog.result["checklist"],
                 repeat_type=dialog.result["repeat_type"],
+                repeat_interval=int(dialog.result["repeat_interval"]),
                 next_due_at=str(dialog.result["next_due_at"]),
                 streak=int(dialog.result["streak"]),
             )
+            if (
+                previous_status != NodeStatus.DONE
+                and dialog.result["status"] == NodeStatus.DONE
+            ):
+                next_node = self.context.recommendation_engine.recommend_next(
+                    self.context.graph
+                )
+                if next_node is not None:
+                    self._selected_node_id = next_node.id
+                    self.context.graph_service.set_current_node(next_node.id)
+                self._start_completion_flow(node_id, next_node.id if next_node else None)
             self.redraw()
+            self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Edit node failed", str(exc), parent=self)
 
@@ -411,7 +718,16 @@ class GraphCanvas(tk.Canvas):
         try:
             self.context.graph_service.update_node_status(node_id, status)
             self._selected_node_id = node_id
+            if status == NodeStatus.DONE:
+                next_node = self.context.recommendation_engine.recommend_next(
+                    self.context.graph
+                )
+                if next_node is not None:
+                    self._selected_node_id = next_node.id
+                    self.context.graph_service.set_current_node(next_node.id)
+                self._start_completion_flow(node_id, next_node.id if next_node else None)
             self.redraw()
+            self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Update status failed", str(exc), parent=self)
 
@@ -422,6 +738,7 @@ class GraphCanvas(tk.Canvas):
             self.context.graph_service.delete_node(node_id)
             self._selected_node_id = None
             self.redraw()
+            self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Delete node failed", str(exc), parent=self)
 
@@ -503,17 +820,53 @@ class GraphCanvas(tk.Canvas):
         except PetFlowError as exc:
             messagebox.showerror("Create edge failed", str(exc), parent=self)
 
-    def _open_agent_split(self, node_id: str) -> None:
-        main_window = self.master
-        while main_window is not None and not hasattr(main_window, "open_agent_dialog"):
-            main_window = getattr(main_window, "master", None)
-        if main_window is None:
-            messagebox.showerror("Agent", "Agent dialog is unavailable.", parent=self)
-            return
-        main_window.open_agent_dialog(node_id=node_id)
+    @staticmethod
+    def _run_node_action(
+        action: Callable[[str], None] | None, node_id: str
+    ) -> None:
+        if action is not None:
+            action(node_id)
+
+    def _notify_graph_changed(self) -> None:
+        if self.on_graph_changed is not None:
+            self.on_graph_changed()
 
     def _set_zoom(self, zoom: float) -> None:
         self.context.graph.workspace.zoom = min(2.5, max(0.4, zoom))
+        self.redraw()
+
+    def fit_graph_to_view(self, padding: float = 100.0) -> None:
+        nodes = list(self.context.graph.nodes.values())
+        if not nodes:
+            return
+        self.update_idletasks()
+        viewport_width = max(1, self.winfo_width())
+        viewport_height = max(1, self.winfo_height())
+        min_x = min(node.x for node in nodes)
+        min_y = min(node.y for node in nodes)
+        max_x = max(node.x + self.NODE_WIDTH for node in nodes)
+        max_y = max(node.y + self.NODE_HEIGHT for node in nodes)
+        graph_width = max_x - min_x + padding * 2
+        graph_height = max_y - min_y + padding * 2
+        zoom = clamp(
+            min(viewport_width / graph_width, viewport_height / graph_height),
+            0.75,
+            1.25,
+        )
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+        workspace = self.context.graph.workspace
+        workspace.zoom = zoom
+        workspace.pan_x = viewport_width / 2 - center_x * zoom
+        workspace.pan_y = viewport_height / 2 - center_y * zoom
+        self.configure(
+            scrollregion=(
+                -padding,
+                -padding,
+                viewport_width + padding,
+                viewport_height + padding,
+            )
+        )
         self.redraw()
 
     def _event_graph_position(self, event: tk.Event) -> tuple[float, float]:
@@ -537,23 +890,328 @@ class GraphCanvas(tk.Canvas):
     def _scale(self, value: float) -> float:
         return value * self.context.graph.workspace.zoom
 
+    def _rounded_rectangle(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        radius: float,
+        **kwargs: object,
+    ) -> int:
+        points = [
+            x1 + radius, y1, x2 - radius, y1, x2, y1, x2, y1 + radius,
+            x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
+            x1, y2, x1, y2 - radius, x1, y1 + radius, x1, y1,
+        ]
+        return self.create_polygon(points, smooth=True, splinesteps=24, **kwargs)
+
+    def compute_edge_path(
+        self, source: Node, target: Node, _edge_type: EdgeType
+    ) -> list[Point]:
+        start = self._to_screen(
+            source.x + self.NODE_WIDTH, source.y + self.NODE_HEIGHT / 2
+        )
+        end = self._to_screen(target.x, target.y + self.NODE_HEIGHT / 2)
+        forward = target.x >= source.x - 40.0
+        obstructed = self._path_intersects_other_node(source, target)
+        if forward and not obstructed:
+            dx = end[0] - start[0]
+            offset = clamp(abs(dx) * 0.45, self._scale(60), self._scale(140))
+            return sample_cubic_bezier(
+                start,
+                (start[0] + offset, start[1]),
+                (end[0] - offset, end[1]),
+                end,
+            )
+        return self._orthogonal_auxiliary_path(source, target, start, end)
+
+    def _orthogonal_auxiliary_path(
+        self, source: Node, target: Node, start: Point, end: Point
+    ) -> list[Point]:
+        lane_offset = self._scale(96)
+        above = min(source.y, target.y) >= 110.0
+        if above:
+            lane_y = min(start[1], end[1]) - lane_offset
+        else:
+            lane_y = max(start[1], end[1]) + lane_offset
+        exit_x = start[0] + self._scale(34)
+        entry_x = end[0] - self._scale(34)
+        return [
+            start,
+            (exit_x, start[1]),
+            (exit_x, lane_y),
+            (entry_x, lane_y),
+            (entry_x, end[1]),
+            end,
+        ]
+
+    def _path_intersects_other_node(self, source: Node, target: Node) -> bool:
+        left = source.x + self.NODE_WIDTH
+        right = target.x
+        if right <= left:
+            return False
+        path_top = min(
+            source.y + self.NODE_HEIGHT / 2,
+            target.y + self.NODE_HEIGHT / 2,
+        )
+        path_bottom = max(
+            source.y + self.NODE_HEIGHT / 2,
+            target.y + self.NODE_HEIGHT / 2,
+        )
+        for node in self.context.graph.nodes.values():
+            if node.id in {source.id, target.id}:
+                continue
+            if left < node.x + self.NODE_WIDTH and node.x < right:
+                if node.y <= path_bottom and node.y + self.NODE_HEIGHT >= path_top:
+                    return True
+        return False
+
+    def _draw_edge_label(
+        self, edge: Edge, path: list[Point], state: str
+    ) -> list[int]:
+        text = self._edge_label_text(edge)
+        total = path_length(path)
+        center_x, center_y = point_at_distance(path, total * 0.5)
+        width = self._meta_font.measure(text) + 18
+        height = 22
+        before_x, before_y = point_at_distance(path, max(0.0, total * 0.5 - 8))
+        after_x, after_y = point_at_distance(path, min(total, total * 0.5 + 8))
+        tangent_x = after_x - before_x
+        tangent_y = after_y - before_y
+        tangent_length = max(1.0, hypot(tangent_x, tangent_y))
+        normal_x = -tangent_y / tangent_length * 12
+        normal_y = tangent_x / tangent_length * 12
+        candidates = [
+            (center_x + normal_x, center_y + normal_y),
+            (center_x - normal_x, center_y - normal_y),
+            (center_x + normal_x * 2, center_y + normal_y * 2),
+            (center_x - normal_x * 2, center_y - normal_y * 2),
+        ]
+        label_x: float | None = None
+        label_y: float | None = None
+        for candidate_x, candidate_y in candidates:
+            box = (
+                candidate_x - width / 2,
+                candidate_y - height / 2,
+                candidate_x + width / 2,
+                candidate_y + height / 2,
+            )
+            if not self._label_collides(box):
+                label_x, label_y = candidate_x, candidate_y
+                self._label_boxes.append(box)
+                break
+        if label_x is None or label_y is None:
+            return []
+        shadow = self._rounded_rectangle(
+            label_x - width / 2,
+            label_y - height / 2 + 1,
+            label_x + width / 2,
+            label_y + height / 2 + 1,
+            10,
+            fill="#E5E7EB",
+            outline="",
+            tags=("edge", "edge-label", f"edge:{edge.id}", f"edge-label:{edge.id}"),
+        )
+        pill = self._rounded_rectangle(
+            label_x - width / 2,
+            label_y - height / 2,
+            label_x + width / 2,
+            label_y + height / 2,
+            10,
+            fill="#FFFFFF",
+            outline="#E5E7EB",
+            width=1,
+            tags=("edge", "edge-label", f"edge:{edge.id}", f"edge-label:{edge.id}"),
+        )
+        label = self.create_text(
+            label_x,
+            label_y,
+            text=text,
+            fill="#64748B",
+            font=(self.font_family, 9),
+            tags=("edge", "edge-label", f"edge:{edge.id}", f"edge-label:{edge.id}"),
+        )
+        return [shadow, pill, label]
+
+    def _label_collides(self, box: tuple[float, float, float, float]) -> bool:
+        for existing in self._label_boxes:
+            if self._boxes_overlap(box, existing):
+                return True
+        for node in self.context.graph.nodes.values():
+            x1, y1 = self._to_screen(node.x, node.y)
+            x2, y2 = self._to_screen(
+                node.x + self.NODE_WIDTH, node.y + self.NODE_HEIGHT
+            )
+            if self._boxes_overlap(box, (x1 - 5, y1 - 5, x2 + 5, y2 + 5)):
+                return True
+        return False
+
+    @staticmethod
+    def _boxes_overlap(
+        first: tuple[float, float, float, float],
+        second: tuple[float, float, float, float],
+    ) -> bool:
+        return not (
+            first[2] < second[0]
+            or first[0] > second[2]
+            or first[3] < second[1]
+            or first[1] > second[3]
+        )
+
+    def _edge_visual_state(self, edge: Edge) -> str:
+        if self._completion_flow is not None and edge.id == self._completion_flow.edge_id:
+            return "completion-flow"
+        if (
+            edge.id == self._selected_edge_id
+            or edge.id in self._recommended_edge_ids()
+        ):
+            return "selected-path"
+        if (
+            edge.id == self._hovered_edge_id
+            or self._hovered_node_id in {edge.source, edge.target}
+        ):
+            return "hover-related"
+        return "default"
+
+    def _should_show_edge_label(self, edge: Edge, state: str) -> bool:
+        return state != "default" or edge.id == self._hovered_edge_id
+
+    @staticmethod
+    def _flatten_points(points: list[Point]) -> list[float]:
+        coordinates: list[float] = []
+        for x, y in points:
+            coordinates.extend((x, y))
+        return coordinates
+
+    def _recommended_node_id(self) -> str | None:
+        node = self.context.recommendation_engine.recommend_next(self.context.graph)
+        return node.id if node is not None else None
+
+    def _recommended_edge_ids(self) -> set[str]:
+        recommended_id = self._recommended_node_id()
+        if recommended_id is None:
+            return set()
+        return {
+            edge.id
+            for edge in self.context.graph.edges.values()
+            if (
+                edge.target == recommended_id
+                and edge.type == EdgeType.DEPENDENCY
+            )
+            or (
+                edge.source == recommended_id
+                and edge.type in {EdgeType.DEPENDENCY, EdgeType.RECOMMENDATION}
+            )
+        }
+
+    def _start_completion_flow(self, source_id: str, target_id: str | None) -> None:
+        edge_id = self._outgoing_edge_id(source_id, target_id)
+        self._completion_flow = CompletionFlow(source_id, target_id, edge_id)
+        if self._completion_after_id is not None:
+            self.after_cancel(self._completion_after_id)
+        self._notify_pet_reaction("complete")
+        self._advance_completion_flow()
+
+    def _advance_completion_flow(self) -> None:
+        if self._completion_flow is None:
+            return
+        if self._completion_flow.frame <= 5:
+            self._notify_pet_reaction("complete")
+        elif self._completion_flow.frame < 25:
+            self._notify_pet_reaction("move")
+        else:
+            self._notify_pet_reaction("arrive")
+        self.redraw()
+        self._completion_flow.frame += 1
+        if self._completion_flow.frame > self._completion_flow.total_frames:
+            self._completion_flow = None
+            self._completion_after_id = None
+            self._notify_pet_reaction(None)
+            self.redraw()
+            return
+        self._completion_after_id = self.after(40, self._advance_completion_flow)
+
+    def _draw_completion_overlay(self) -> None:
+        flow = self._completion_flow
+        if flow is None or flow.edge_id is None or flow.frame < 5:
+            return
+        edge = self.context.graph.get_edge(flow.edge_id)
+        if edge is None:
+            return
+        source = self.context.graph.get_node(edge.source)
+        target = self.context.graph.get_node(edge.target)
+        if source is None or target is None:
+            return
+        path = self.compute_edge_path(source, target, edge.type)
+        total = path_length(path)
+        progress = min(1.0, (flow.frame - 5) / 19)
+        end_distance = total * progress
+        segment = extract_subpath(path, max(0.0, end_distance - 84), end_distance)
+        if len(segment) >= 2:
+            self.create_line(
+                *self._flatten_points(segment),
+                fill="#3B82F6",
+                width=3,
+                capstyle=tk.ROUND,
+                joinstyle=tk.ROUND,
+                tags=("edge-flow-animation",),
+            )
+
+    def _outgoing_edge_id(self, source_id: str, target_id: str | None) -> str | None:
+        if target_id is None or target_id == source_id:
+            return None
+        for edge in self.context.graph.edges.values():
+            if edge.source == source_id and edge.target == target_id:
+                return edge.id
+        return None
+
+    def _node_pulse_amount(self, node_id: str) -> float:
+        flow = self._completion_flow
+        if flow is None:
+            return 0.0
+        if node_id == flow.source_id and flow.frame <= 5:
+            relative = flow.frame / 4
+            return 3.0 * max(0.0, 1.0 - abs(relative * 2 - 1.0))
+        if node_id == flow.target_id and flow.frame >= 25:
+            relative = (flow.frame - 25) / 5
+            return 3.0 * max(0.0, 1.0 - abs(relative * 2 - 1.0))
+        return 0.0
+
+    def _is_completion_source(self, node_id: str) -> bool:
+        return self._completion_flow is not None and self._completion_flow.source_id == node_id
+
+    def _notify_pet_reaction(self, reaction: str | None) -> None:
+        if self.on_pet_reaction is not None:
+            self.on_pet_reaction(reaction)
+
     @staticmethod
     def _edge_style(edge: Edge) -> tuple[str, tuple[int, ...] | None]:
         if edge.type == EdgeType.DEPENDENCY:
-            return "#1d4ed8", None
+            return "#CBD5E1", None
         if edge.type == EdgeType.ROUTINE:
-            return "#059669", (6, 4)
+            return "#CBD5E1", (10, 10)
         if edge.type == EdgeType.RECOMMENDATION:
-            return "#7c3aed", (2, 4)
+            return "#CBD5E1", (10, 10)
         if edge.type == EdgeType.TRIGGER:
-            return "#ea580c", None
-        return "#475569", None
+            return "#CBD5E1", (10, 10)
+        return "#CBD5E1", None
 
     @staticmethod
     def _fit_text(text: str, max_chars: int) -> str:
         if len(text) <= max_chars:
             return text
         return text[: max_chars - 1] + "..."
+
+    @staticmethod
+    def _fit_text_to_width(text: str, font: tkfont.Font, max_width: float) -> str:
+        if font.measure(text) <= max_width:
+            return text
+        suffix = "..."
+        fitted = text
+        while fitted and font.measure(fitted + suffix) > max_width:
+            fitted = fitted[:-1]
+        return fitted + suffix if fitted else suffix
 
     @classmethod
     def _edge_label_text(cls, edge: Edge) -> str:
@@ -562,30 +1220,36 @@ class GraphCanvas(tk.Canvas):
         return edge.type.value
 
     @staticmethod
-    def _node_fill(node: Node) -> str:
+    def _node_palette(node: Node) -> tuple[str, str]:
         if node.type == NodeType.RESOURCE:
-            return "#ccfbf1"
+            return "#ECFDF5", "#A7F3D0"
         if node.type == NodeType.REWARD:
-            return "#fce7f3"
+            return "#FDF2F8", "#F9A8D4"
         if node.type == NodeType.CHECKPOINT:
-            return "#e0e7ff"
-        if node.status == NodeStatus.DOING:
-            return "#fef3c7"
-        if node.status == NodeStatus.DONE:
-            return "#dcfce7"
-        if node.status == NodeStatus.BLOCKED:
-            return "#fee2e2"
-        if node.status == NodeStatus.PAUSED:
-            return "#ede9fe"
-        return "#dbeafe"
+            return "#EEF2FF", "#C7D2FE"
+        if node.type == NodeType.ROUTINE:
+            return "#FFFBEB", "#FDE68A"
+        return "#ECFDF5", "#A7F3D0"
 
-    def _node_meta_text(self, node: Node) -> str:
-        parts = [node.status.value, f"P{node.priority}", f"{node.estimated_minutes}m"]
+    def _status_text(self, node: Node) -> str:
+        parts = [node.status.value.capitalize()]
         if node.type == NodeType.ROUTINE:
             state = self._routine_state_label(node)
             if state:
-                parts.append(state)
-        return " | ".join(parts)
+                parts.append(state.capitalize())
+        return " / ".join(parts)
+
+    @staticmethod
+    def _status_palette(status: NodeStatus) -> tuple[str, str]:
+        if status == NodeStatus.DONE:
+            return "#D1FAE5", "#047857"
+        if status == NodeStatus.DOING:
+            return "#DBEAFE", "#1D4ED8"
+        if status == NodeStatus.BLOCKED:
+            return "#FEE2E2", "#DC2626"
+        if status == NodeStatus.PAUSED:
+            return "#F3F4F6", "#6B7280"
+        return "#E5E7EB", "#4B5563"
 
     def _routine_state_label(self, node: Node) -> str:
         state = self.context.routine_service.routine_state(node)

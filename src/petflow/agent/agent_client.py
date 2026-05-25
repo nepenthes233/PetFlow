@@ -29,6 +29,12 @@ class AgentClient:
     timeout_seconds: float = 30.0
     http_post: HttpPost | None = None
 
+    def __post_init__(self) -> None:
+        self.api_key = self.api_key.strip() if self.api_key else None
+        self.base_url = self.base_url.strip().rstrip("/") if self.base_url else None
+        self.model = self.model.strip() if self.model else None
+        self.wire_api = self.wire_api.strip()
+
     @classmethod
     def from_environment(cls) -> "AgentClient":
         return cls(
@@ -43,14 +49,23 @@ class AgentClient:
     def from_settings(cls, settings: AgentSettings | None = None) -> "AgentClient":
         settings = settings or AgentSettings.load()
         env_mock = os.getenv("PETFLOW_AGENT_MOCK", "").lower() in {"1", "true", "yes"}
+        settings_key = settings.api_key.strip()
+        environment_key = (
+            os.getenv("PETFLOW_AGENT_API_KEY", "").strip()
+            or os.getenv("IMAGE_API_KEY", "").strip()
+        )
         return cls(
-            api_key=(
-                settings.api_key
-                or os.getenv("PETFLOW_AGENT_API_KEY")
-                or os.getenv("IMAGE_API_KEY")
+            api_key=settings_key or environment_key or None,
+            base_url=(
+                settings.base_url.strip()
+                or os.getenv("PETFLOW_AGENT_BASE_URL", "").strip()
+                or None
             ),
-            base_url=settings.base_url or os.getenv("PETFLOW_AGENT_BASE_URL"),
-            model=settings.model or os.getenv("PETFLOW_AGENT_MODEL"),
+            model=(
+                settings.model.strip()
+                or os.getenv("PETFLOW_AGENT_MODEL", "").strip()
+                or None
+            ),
             wire_api=settings.wire_api or os.getenv("PETFLOW_AGENT_WIRE_API", "chat_completions"),
             mock_mode=settings.mock_mode or env_mock,
         )
@@ -70,7 +85,8 @@ class AgentClient:
         if self.wire_api == "responses":
             response = self._complete_responses_json(prompt)
         else:
-            response = self._complete_chat_json(prompt)
+            test_model = "deepseek-v4-flash" if self._is_deepseek() else None
+            response = self._complete_chat_json(prompt, model_override=test_model)
         if response.get("ok") is True:
             return "Agent API is reachable."
         return "Agent API responded with valid JSON."
@@ -90,12 +106,14 @@ class AgentClient:
             return self.mock_mode
         return not self.api_key
 
-    def _complete_chat_json(self, prompt: str) -> dict[str, Any]:
+    def _complete_chat_json(
+        self, prompt: str, model_override: str | None = None
+    ) -> dict[str, Any]:
         if not self.api_key:
             return self._mock_response(prompt)
         url = self._chat_completions_url()
         payload = {
-            "model": self.model or "gpt-4o-mini",
+            "model": model_override or self.model or "gpt-4o-mini",
             "messages": [
                 {
                     "role": "system",
@@ -104,19 +122,17 @@ class AgentClient:
                 {"role": "user", "content": prompt},
             ],
             "response_format": {"type": "json_object"},
+            "max_tokens": 4096,
         }
         post = self.http_post or requests.post
         try:
             response = post(
                 url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=self._json_headers(),
                 json=payload,
                 timeout=self.timeout_seconds,
             )
-            response.raise_for_status()
+            self._ensure_success(response, url)
             data = response.json()
         except requests.RequestException as exc:
             raise GraphValidationError(f"Agent API request failed: {exc}") from exc
@@ -165,14 +181,11 @@ class AgentClient:
         try:
             response = post(
                 url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=self._json_headers(),
                 json=payload,
                 timeout=self.timeout_seconds,
             )
-            response.raise_for_status()
+            self._ensure_success(response, url)
             data = response.json()
         except requests.RequestException as exc:
             raise GraphValidationError(f"Agent API request failed: {exc}") from exc
@@ -194,15 +207,14 @@ class AgentClient:
             response = post(
                 url,
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
+                    **self._json_headers(),
                     "Accept": "text/event-stream",
                 },
                 json=stream_payload,
                 timeout=self.timeout_seconds,
                 stream=True,
             )
-            response.raise_for_status()
+            self._ensure_success(response, url)
         except requests.RequestException as exc:
             raise GraphValidationError(f"Agent API request failed: {exc}") from exc
 
@@ -285,6 +297,11 @@ class AgentClient:
 
     def _chat_completions_url(self) -> str:
         base_url = (self.base_url or "https://api.openai.com/v1").rstrip("/")
+        if base_url.lower() in {
+            "https://api.deepseek.com",
+            "https://api.deepseek.com/v1",
+        }:
+            return "https://api.deepseek.com/chat/completions"
         if base_url.endswith("/chat/completions"):
             return base_url
         return f"{base_url}/chat/completions"
@@ -294,6 +311,45 @@ class AgentClient:
         if base_url.endswith("/responses"):
             return base_url
         return f"{base_url}/responses"
+
+    def _json_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key or ''}",
+            "Content-Type": "application/json",
+        }
+
+    def _is_deepseek(self) -> bool:
+        base_url = (self.base_url or "").lower().rstrip("/")
+        return base_url in {
+            "https://api.deepseek.com",
+            "https://api.deepseek.com/v1",
+        }
+
+    def _ensure_success(self, response: object, url: str) -> None:
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int) and not 200 <= status_code < 300:
+            body = self._response_body(response)
+            raise GraphValidationError(
+                f"Agent API returned HTTP {status_code} from {url} "
+                f"(key {self.masked_api_key()}). Response body: {body}"
+            )
+        if status_code is None:
+            response.raise_for_status()
+
+    def _response_body(self, response: object) -> str:
+        text = getattr(response, "text", "")
+        if not isinstance(text, str) or not text.strip():
+            try:
+                text = json.dumps(response.json(), ensure_ascii=False)
+            except (AttributeError, ValueError, TypeError):
+                text = "<empty response body>"
+        key = self.api_key or ""
+        return text.replace(key, self.masked_api_key()) if key else text
+
+    def masked_api_key(self) -> str:
+        key = self.api_key or ""
+        suffix = key[-4:] if len(key) >= 4 else "****"
+        return f"sk-****{suffix}"
 
     @staticmethod
     def _extract_message_content(data: dict[str, Any]) -> str:
@@ -452,6 +508,13 @@ class AgentClient:
 
     @staticmethod
     def _mock_response(prompt: str) -> dict[str, Any]:
+        if "`reply` string field" in prompt:
+            return {
+                "reply": (
+                    "I can answer questions here. Use Plan Flow when you want "
+                    "me to create task nodes and relationships."
+                )
+            }
         if "拆分" in prompt or "split" in prompt.lower():
             return {
                 "nodes": [

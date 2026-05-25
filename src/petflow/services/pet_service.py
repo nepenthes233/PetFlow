@@ -71,6 +71,14 @@ class PetService:
             return
         if status == NodeStatus.DONE.value:
             self.react_to_completion(node_id)
+        elif status == NodeStatus.DOING.value:
+            node = self.graph.get_node(node_id)
+            if node is not None:
+                self.move_to_node(
+                    node.id,
+                    state=PetStateType.MOVE,
+                    speech=f"Working on: {node.title}",
+                )
 
     def _set_idle(self, speech: str) -> PetState:
         self.graph.pet.state = PetStateType.IDLE

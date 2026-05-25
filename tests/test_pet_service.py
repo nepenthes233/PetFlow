@@ -39,6 +39,18 @@ class PetServiceTest(unittest.TestCase):
         self.assertEqual(context.graph.pet.state, PetStateType.IDLE)
         self.assertEqual(context.graph.pet.speech, "No available next step.")
 
+    def test_doing_node_moves_pet_into_focus_reaction(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(
+            title="Implement UI", x=120, y=80
+        )
+
+        context.graph_service.update_node_status(node.id, NodeStatus.DOING)
+
+        self.assertEqual(context.graph.pet.current_node_id, node.id)
+        self.assertEqual(context.graph.pet.state, PetStateType.MOVE)
+        self.assertIn("Implement UI", context.graph.pet.speech)
+
 
 if __name__ == "__main__":
     unittest.main()

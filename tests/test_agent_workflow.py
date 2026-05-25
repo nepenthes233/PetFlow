@@ -9,9 +9,54 @@ from petflow.agent.agent_executor import AgentExecutor
 from petflow.agent.proposal import AgentProposalValidator
 from petflow.app import AppContext
 from petflow.domain import EdgeType, GraphValidationError, NodeType
+from petflow.domain.enums import RepeatType
 
 
 class AgentWorkflowTest(unittest.TestCase):
+    def test_original_agent_contract_remains_applicable_without_new_fields(self) -> None:
+        context = AppContext.create()
+        original_contract_proposal = {
+            "nodes": [
+                {
+                    "id": "n1",
+                    "type": "task",
+                    "title": "Plan",
+                    "description": "Outline work",
+                    "priority": 5,
+                    "estimated_minutes": 45,
+                    "x": 120,
+                    "y": 120,
+                },
+                {
+                    "id": "n2",
+                    "type": "task",
+                    "title": "Build",
+                    "description": "",
+                    "priority": 3,
+                    "estimated_minutes": 90,
+                    "x": 330,
+                    "y": 120,
+                },
+            ],
+            "edges": [
+                {
+                    "source": "n1",
+                    "target": "n2",
+                    "type": "dependency",
+                    "label": "then",
+                }
+            ],
+        }
+
+        created = AgentExecutor(context.graph_service).apply_graph_proposal(
+            original_contract_proposal
+        )
+
+        self.assertEqual([node.title for node in created], ["Plan", "Build"])
+        self.assertEqual(created[0].repeat_type, RepeatType.NONE)
+        self.assertIsNone(created[0].next_due_at)
+        self.assertEqual(len(context.graph.edges), 1)
+
     def test_validator_accepts_valid_proposal(self) -> None:
         validator = AgentProposalValidator()
         proposal = validator.validate(
@@ -32,6 +77,75 @@ class AgentWorkflowTest(unittest.TestCase):
 
         with self.assertRaises(GraphValidationError):
             validator.validate({"nodes": [{"id": "n1"}], "edges": []})
+
+    def test_validator_accepts_optional_schedule_fields(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "title": "Review",
+                        "repeat_type": "weekly",
+                        "repeat_interval": 2,
+                        "next_due_at": "2026-05-27",
+                    }
+                ],
+                "edges": [],
+            }
+        )
+
+        node = proposal["nodes"][0]
+        self.assertEqual(node["repeat_type"], "weekly")
+        self.assertEqual(node["repeat_interval"], 2)
+        self.assertEqual(node["next_due_at"], "2026-05-27")
+
+    def test_validator_normalizes_common_model_status_and_priority_aliases(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "title": "Draft slides",
+                        "status": "pending",
+                        "priority": "high",
+                    },
+                    {
+                        "id": "n2",
+                        "title": "Present",
+                        "status": "in progress",
+                        "priority": "urgent",
+                    },
+                ],
+                "edges": [],
+            }
+        )
+
+        self.assertEqual(proposal["nodes"][0]["status"], "todo")
+        self.assertEqual(proposal["nodes"][0]["priority"], 4)
+        self.assertEqual(proposal["nodes"][1]["status"], "doing")
+        self.assertEqual(proposal["nodes"][1]["priority"], 5)
+
+    def test_validator_reports_invalid_numeric_value_without_value_error(self) -> None:
+        with self.assertRaisesRegex(
+            GraphValidationError, "estimated_minutes must be a number"
+        ):
+            AgentProposalValidator().validate(
+                {
+                    "nodes": [
+                        {"id": "n1", "title": "Draft slides", "estimated_minutes": "soon"}
+                    ],
+                    "edges": [],
+                }
+            )
+
+    def test_validator_rejects_invalid_schedule_date(self) -> None:
+        with self.assertRaises(GraphValidationError):
+            AgentProposalValidator().validate(
+                {
+                    "nodes": [{"id": "n1", "title": "Review", "next_due_at": "soon"}],
+                    "edges": [],
+                }
+            )
 
     def test_validator_rejects_duplicate_node_ids(self) -> None:
         validator = AgentProposalValidator()
@@ -70,6 +184,16 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertIn("nodes", proposal)
         self.assertIn("edges", proposal)
 
+    def test_mock_client_answers_companion_chat(self) -> None:
+        client = AgentClient(mock_mode=True)
+
+        response = client.complete_json(
+            "Return only a JSON object with a single `reply` string field."
+        )
+
+        self.assertIn("reply", response)
+        self.assertNotIn("nodes", response)
+
     def test_mock_client_connection_test_succeeds(self) -> None:
         client = AgentClient(mock_mode=True)
 
@@ -93,6 +217,71 @@ class AgentWorkflowTest(unittest.TestCase):
         )
 
         self.assertEqual(client.test_connection(), "Agent API is reachable.")
+
+    def test_deepseek_connection_test_uses_required_url_headers_and_model(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self) -> dict[str, object]:
+                return {"choices": [{"message": {"content": '{"ok": true}'}}]}
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="  sk-secret-last  ",
+            base_url=" https://api.deepseek.com/ ",
+            model="deepseek-chat",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        self.assertEqual(client.test_connection(), "Agent API is reachable.")
+        self.assertEqual(
+            captured["args"][0], "https://api.deepseek.com/chat/completions"
+        )
+        kwargs = captured["kwargs"]
+        assert isinstance(kwargs, dict)
+        self.assertEqual(
+            kwargs["headers"],
+            {
+                "Authorization": "Bearer sk-secret-last",
+                "Content-Type": "application/json",
+            },
+        )
+        payload = kwargs["json"]
+        assert isinstance(payload, dict)
+        self.assertEqual(payload["model"], "deepseek-v4-flash")
+        self.assertNotIn("api_key", payload)
+        self.assertNotIn("sk-secret-last", str(payload))
+
+    def test_deepseek_http_error_includes_body_and_masked_key_only(self) -> None:
+        class FakeResponse:
+            status_code = 401
+            text = '{"error":{"message":"Authentication Fails"}}'
+
+        def fake_post(*args: object, **kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+        client = AgentClient(
+            api_key="sk-secret-abcd",
+            base_url="https://api.deepseek.com",
+            mock_mode=False,
+            http_post=fake_post,
+        )
+
+        with self.assertRaises(GraphValidationError) as caught:
+            client.test_connection()
+
+        message = str(caught.exception)
+        self.assertIn("HTTP 401", message)
+        self.assertIn("Authentication Fails", message)
+        self.assertIn("sk-****abcd", message)
+        self.assertNotIn("sk-secret-abcd", message)
 
     def test_client_connection_test_uses_responses_api(self) -> None:
         captured: dict[str, object] = {}
@@ -469,6 +658,27 @@ class AgentWorkflowTest(unittest.TestCase):
         ]
         self.assertEqual(len(recommendation_edges), 1)
         self.assertEqual(recommendation_edges[0].type, EdgeType.RECOMMENDATION)
+
+    def test_executor_applies_optional_schedule_fields(self) -> None:
+        context = AppContext.create()
+        created = AgentExecutor(context.graph_service).apply_graph_proposal(
+            {
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "title": "Weekly review",
+                        "repeat_type": "weekly",
+                        "repeat_interval": 2,
+                        "next_due_at": "2026-05-27",
+                    }
+                ],
+                "edges": [],
+            }
+        )
+
+        self.assertEqual(created[0].repeat_type, RepeatType.WEEKLY)
+        self.assertEqual(created[0].repeat_interval, 2)
+        self.assertEqual(created[0].next_due_at, "2026-05-27")
 
 
 if __name__ == "__main__":

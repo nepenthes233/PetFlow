@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
+from queue import Empty, Queue
+from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from petflow.agent.agent_client import AgentClient
+from petflow.agent.agent_executor import AgentExecutor
 from petflow.agent.prompts import PromptBuilder
 from petflow.app.app_context import AppContext
 from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
-from petflow.domain.enums import NodeStatus, PetStateType
+from petflow.domain.enums import NodeStatus, NodeType, PetStateType
 from petflow.domain.exceptions import PetFlowError
 from petflow.system.clipboard_watcher import ClipboardWatcher
 from petflow.system.focus_monitor import FocusMonitor
 from petflow.ui.agent_dialog import AgentDialog
+from petflow.ui.agenda_panel import AgendaPanel
 from petflow.ui.dialogs import NodeDialog
 from petflow.ui.graph_canvas import GraphCanvas
 from petflow.ui.fonts import apply_ui_font_defaults
+from petflow.ui.pet_assistant_panel import PetAssistantPanel
 from petflow.ui.settings_dialog import SettingsDialog
 
 
@@ -30,10 +36,17 @@ class MainWindow:
         self.focus_started_at: datetime | None = None
         self.status_message = "Ready"
         self.status_after_id: str | None = None
-        self.toolbar: tk.Frame | None = None
-        self.toolbar_items: list[tuple[tk.Widget, tuple[int, int], str]] = []
-        self.toolbar_layout_after_id: str | None = None
-        self.toolbar_layout_width: int | None = None
+        self.agenda_panel: AgendaPanel | None = None
+        self.pet_panel: PetAssistantPanel | None = None
+        self.workspace_panes: tk.PanedWindow | None = None
+        self._agenda_visible = True
+        self._pet_panel_visible = True
+        self.more_menu: tk.Menu | None = None
+        self.more_button: tk.Button | None = None
+        self._pet_agent_busy = False
+        self._pet_agent_results: Queue[
+            tuple[str, dict[str, object] | None, PetFlowError | None]
+        ] = Queue()
 
         self.root = tk.Tk()
         self.ui_font_family = apply_ui_font_defaults(self.root)
@@ -44,187 +57,250 @@ class MainWindow:
         self._build_ui()
 
     def _build_ui(self) -> None:
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        self.root.configure(bg="#F6F8FB")
+        style = ttk.Style(self.root)
+        style.configure("Topbar.TCheckbutton", background="#FFFFFF", padding=(8, 8))
 
-        toolbar = tk.Frame(self.root, width=self.config.window_width, height=80)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(2, weight=1)
+
+        toolbar = tk.Frame(
+            self.root,
+            width=self.config.window_width,
+            height=64,
+            bg="#FFFFFF",
+            highlightthickness=1,
+            highlightbackground="#E5E7EB",
+        )
         toolbar.grid(row=0, column=0, sticky="ew")
         toolbar.grid_propagate(False)
-        self.toolbar = toolbar
 
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="New Node", command=self.create_node)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Edit Node", command=self.edit_selected_node)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Mark Done", command=self.mark_selected_done)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Delete Node", command=self.delete_selected_node)
-        )
-        self._add_toolbar_item(
-            ttk.Button(
-                toolbar,
-                text="Attach File",
-                command=self.attach_file_to_selected_node,
-            )
-        )
-        self._add_toolbar_item(
-            ttk.Button(
-                toolbar,
-                text="Copy Resource",
-                command=self.copy_selected_resource,
-            )
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Create Edge", command=self.begin_edge_mode)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Delete Edge", command=self.delete_selected_edge)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Edit Edge", command=self.edit_selected_edge)
-        )
-        self._add_toolbar_item(ttk.Button(toolbar, text="Save", command=self.save_graph))
-        self._add_toolbar_item(ttk.Button(toolbar, text="Load", command=self.load_graph))
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Sample", command=self.load_sample_graph)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Layout", command=self.layout_graph)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Zoom In", command=self.zoom_in)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Zoom Out", command=self.zoom_out)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Reset View", command=self.reset_view)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Recommend Next", command=self.recommend_next)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Agent", command=self.open_agent_dialog)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Review", command=self.show_review)
-        )
-        self._add_toolbar_item(
-            ttk.Button(toolbar, text="Settings", command=self.open_settings_dialog)
-        )
-        self._add_toolbar_item(
-            ttk.Button(
-                toolbar,
-                text="Capture Clipboard",
-                command=self.capture_clipboard,
-            )
-        )
+        left = tk.Frame(toolbar, bg="#FFFFFF")
+        left.pack(side="left", padx=(22, 0), pady=12)
+        tk.Label(
+            left,
+            text="PetFlow",
+            bg="#FFFFFF",
+            fg="#111827",
+            font=(self.ui_font_family, 18, "bold"),
+        ).pack(side="left", padx=(0, 24))
+        self._button(left, "New Node", self.create_node, primary=True).pack(side="left")
 
+        center = tk.Frame(toolbar, bg="#FFFFFF")
+        center.pack(side="left", padx=(34, 0), pady=12)
+        for label, command in (
+            ("Save", self.save_graph),
+            ("Load", self.load_graph),
+            ("Sample", self.load_sample_graph),
+            ("Recommend", self.recommend_next),
+            ("Agent", self.open_agent_dialog),
+        ):
+            self._button(center, label, command).pack(side="left", padx=(0, 4))
+
+        self.more_menu = tk.Menu(self.root, tearoff=False)
+        self.more_menu.add_command(label="Arrange Nodes", command=self.layout_graph)
+        self.more_menu.add_command(label="Fit View    Ctrl+0", command=self.fit_view)
+        self.more_menu.add_command(label="Reset View", command=self.reset_view)
+        self.more_menu.add_separator()
+        self.more_menu.add_command(
+            label="Toggle Schedule Panel", command=self.toggle_agenda_panel
+        )
+        self.more_menu.add_command(
+            label="Toggle Companion Panel", command=self.toggle_pet_panel
+        )
+        self.more_menu.add_separator()
+        self.more_menu.add_command(
+            label="Capture Clipboard", command=self.capture_clipboard
+        )
+        self.more_menu.add_command(label="Review", command=self.show_review)
+        self.more_menu.add_command(
+            label="Settings / API Key...", command=self.open_settings_dialog
+        )
         self.focus_mode_var = tk.BooleanVar(
             value=self.context.graph.workspace.focus_mode
         )
-        self._add_toolbar_item(
-            ttk.Checkbutton(
-                toolbar,
-                text="Focus Mode",
-                variable=self.focus_mode_var,
-                command=self.toggle_focus_mode,
-            )
+        right = tk.Frame(toolbar, bg="#FFFFFF")
+        right.pack(side="right", padx=(0, 22), pady=12)
+        ttk.Checkbutton(
+            right,
+            text="Focus Mode",
+            variable=self.focus_mode_var,
+            command=self.toggle_focus_mode,
+            style="Topbar.TCheckbutton",
+        ).pack(side="left", padx=(0, 12))
+        self.more_button = tk.Button(
+            right,
+            text="More",
+            command=self._show_more_menu,
+            bg="#FFFFFF",
+            fg="#374151",
+            activebackground="#F3F4F6",
+            activeforeground="#111827",
+            relief="flat",
+            borderwidth=0,
+            padx=12,
+            pady=9,
+            font=(self.ui_font_family, 10),
+            cursor="hand2",
         )
+        self.more_button.pack(side="left")
 
-        self.recommendation_var = tk.StringVar(value="Recommended: -")
-        self.recommendation_label = ttk.Label(
-            toolbar,
+        banner = tk.Frame(
+            self.root,
+            bg="#EFF6FF",
+            highlightthickness=1,
+            highlightbackground="#DBEAFE",
+            padx=20,
+            pady=10,
+        )
+        banner.grid(row=1, column=0, sticky="ew")
+        self.recommendation_var = tk.StringVar(value="Suggested next: No available node")
+        self.recommendation_detail_var = tk.StringVar(value="Create or load tasks to begin.")
+        tk.Label(
+            banner,
             textvariable=self.recommendation_var,
-            wraplength=320,
-        )
-        self._add_toolbar_item(
-            self.recommendation_label,
-            padx=(16, 0),
-            sticky="w",
-        )
-        toolbar.bind("<Configure>", self._schedule_toolbar_layout)
-        self.root.after_idle(self._layout_toolbar)
+            bg="#EFF6FF",
+            fg="#111827",
+            anchor="w",
+            font=(self.ui_font_family, 11, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            banner,
+            textvariable=self.recommendation_detail_var,
+            bg="#EFF6FF",
+            fg="#6B7280",
+            anchor="w",
+            font=(self.ui_font_family, 9),
+        ).pack(anchor="w", pady=(3, 0))
 
-        self.canvas = GraphCanvas(self.root, self.context, font_family=self.ui_font_family)
-        self.canvas.grid(row=1, column=0, sticky="nsew")
+        workspace = tk.Frame(self.root, bg="#F6F8FB")
+        workspace.grid(row=2, column=0, sticky="nsew")
+        workspace.columnconfigure(0, weight=1)
+        workspace.rowconfigure(0, weight=1)
+        self.workspace_panes = tk.PanedWindow(
+            workspace,
+            orient="horizontal",
+            bg="#E5E7EB",
+            bd=0,
+            sashwidth=6,
+            sashrelief="flat",
+            showhandle=False,
+            opaqueresize=True,
+        )
+        self.workspace_panes.grid(row=0, column=0, sticky="nsew")
+        self.workspace_panes.bind(
+            "<ButtonRelease-1>", lambda _event: self.root.after_idle(self.fit_view)
+        )
+
+        self.agenda_panel = AgendaPanel(
+            self.workspace_panes,
+            self.context.agenda_service,
+            self._select_agenda_node,
+            self.ui_font_family,
+            self.toggle_agenda_panel,
+        )
+
+        self.canvas = GraphCanvas(
+            self.workspace_panes,
+            self.context,
+            font_family=self.ui_font_family,
+            on_graph_changed=self._on_canvas_graph_changed,
+            on_attach_file=self.attach_file_to_selected_node,
+            on_copy_resource=self.copy_selected_resource,
+            on_agent_split=self.open_agent_dialog,
+            on_pet_reaction=self._render_pet,
+        )
+
+        self.pet_panel = PetAssistantPanel(
+            self.workspace_panes,
+            self.ui_font_family,
+            self._submit_pet_request,
+            self.toggle_pet_panel,
+        )
+        self._rebuild_workspace_panes()
+
+        self.agenda_panel.refresh(self.context.graph)
+        self._update_recommendation_label()
+        self._render_pet()
+        self.root.bind("<Control-0>", lambda _event: self.fit_view())
+        self.root.after_idle(self.fit_view)
 
         self.status_var = tk.StringVar(value=self.status_message)
-        ttk.Label(
+        tk.Label(
             self.root,
             textvariable=self.status_var,
             anchor="w",
-            padding=(8, 4),
-        ).grid(row=2, column=0, sticky="ew")
+            padx=14,
+            pady=6,
+            bg="#FFFFFF",
+            fg="#6B7280",
+            font=(self.ui_font_family, 9),
+            highlightthickness=1,
+            highlightbackground="#E5E7EB",
+        ).grid(row=3, column=0, sticky="ew")
         self._refresh_status_bar()
 
-    def _add_toolbar_item(
+    def _button(
         self,
-        widget: tk.Widget,
-        padx: tuple[int, int] = (0, 8),
-        sticky: str = "w",
-    ) -> None:
-        self.toolbar_items.append((widget, padx, sticky))
-
-    def _schedule_toolbar_layout(self, event: tk.Event[tk.Frame] | None = None) -> None:
-        if event is not None and self.toolbar_layout_width == event.width:
-            return
-        if self.toolbar_layout_after_id is not None:
-            return
-        self.toolbar_layout_after_id = self.root.after(50, self._layout_toolbar)
-
-    def _layout_toolbar(self) -> None:
-        self.toolbar_layout_after_id = None
-        if self.toolbar is None:
-            return
-
-        width = self.toolbar.winfo_width()
-        if width <= 1:
-            width = self.root.winfo_width()
-        if width <= 1:
-            width = self.config.window_width
-        self.toolbar_layout_width = width
-        margin_x = 8
-        margin_y = 8
-        row_gap = 6
-        available_width = max(160, width - margin_x * 2)
-        self.recommendation_label.configure(
-            wraplength=max(120, min(320, available_width // 3))
+        master: tk.Misc,
+        text: str,
+        command: Callable[[], None],
+        primary: bool = False,
+    ) -> tk.Button:
+        return tk.Button(
+            master,
+            text=text,
+            command=command,
+            bg="#2563EB" if primary else "#FFFFFF",
+            fg="#FFFFFF" if primary else "#374151",
+            activebackground="#1D4ED8" if primary else "#F3F4F6",
+            activeforeground="#FFFFFF" if primary else "#111827",
+            relief="flat",
+            borderwidth=0,
+            padx=15 if primary else 12,
+            pady=9,
+            cursor="hand2",
+            font=(self.ui_font_family, 10, "bold" if primary else "normal"),
         )
 
-        rows: list[list[tuple[tk.Widget, tuple[int, int], str]]] = [[]]
-        row_width = 0
-        for widget, padx, sticky in self.toolbar_items:
-            item_width = widget.winfo_reqwidth() + padx[0] + padx[1]
-            if rows[-1] and row_width + item_width > available_width:
-                rows.append([])
-                row_width = 0
-            rows[-1].append((widget, padx, sticky))
-            row_width += item_width
+    def _show_more_menu(self) -> None:
+        if self.more_menu is None or self.more_button is None:
+            return
+        try:
+            self.more_menu.tk_popup(
+                self.more_button.winfo_rootx(),
+                self.more_button.winfo_rooty() + self.more_button.winfo_height(),
+            )
+        finally:
+            self.more_menu.grab_release()
 
-        for widget, _padx, _sticky in self.toolbar_items:
-            widget.place_forget()
+    def toggle_agenda_panel(self) -> None:
+        self._agenda_visible = not self._agenda_visible
+        self._rebuild_workspace_panes()
 
-        y = margin_y
-        for row_index, row_items in enumerate(rows):
-            row_height = max(widget.winfo_reqheight() for widget, _padx, _sticky in row_items)
-            x = margin_x
-            for widget, padx, _sticky in row_items:
-                x += padx[0]
-                widget.place(
-                    x=x,
-                    y=y,
-                    width=widget.winfo_reqwidth(),
-                    height=widget.winfo_reqheight(),
-                )
-                x += widget.winfo_reqwidth() + padx[1]
-            y += row_height + row_gap
-        self.toolbar.configure(width=width, height=y + margin_y - row_gap)
-        self.root.rowconfigure(0, minsize=y + margin_y - row_gap)
+    def toggle_pet_panel(self) -> None:
+        self._pet_panel_visible = not self._pet_panel_visible
+        self._rebuild_workspace_panes()
+
+    def _rebuild_workspace_panes(self) -> None:
+        if (
+            self.workspace_panes is None
+            or self.agenda_panel is None
+            or self.pet_panel is None
+        ):
+            return
+        for pane in self.workspace_panes.panes():
+            self.workspace_panes.forget(pane)
+        if self._agenda_visible:
+            self.workspace_panes.add(
+                self.agenda_panel, width=280, minsize=110, stretch="never"
+            )
+        self.workspace_panes.add(self.canvas, minsize=360, stretch="always")
+        if self._pet_panel_visible:
+            self.workspace_panes.add(
+                self.pet_panel, width=270, minsize=150, stretch="never"
+            )
+        self.root.after_idle(self.fit_view)
 
     def create_node(self) -> None:
         dialog = NodeDialog(self.root)
@@ -232,11 +308,12 @@ class MainWindow:
         if dialog.result is None:
             return
         try:
-            x, y = self._next_node_position()
+            node_type = dialog.result["node_type"]
+            x, y = self._next_node_position(node_type)
             self.context.graph_service.create_node(
                 title=str(dialog.result["title"]),
                 description=str(dialog.result["description"]),
-                node_type=dialog.result["node_type"],
+                node_type=node_type,
                 status=dialog.result["status"],
                 priority=int(dialog.result["priority"]),
                 estimated_minutes=int(dialog.result["estimated_minutes"]),
@@ -246,12 +323,14 @@ class MainWindow:
                 resource_path=str(dialog.result["resource_path"]),
                 checklist=dialog.result["checklist"],
                 repeat_type=dialog.result["repeat_type"],
+                repeat_interval=int(dialog.result["repeat_interval"]),
                 next_due_at=str(dialog.result["next_due_at"]) or None,
                 streak=int(dialog.result["streak"]),
                 x=x,
                 y=y,
             )
             self.canvas.redraw()
+            self._refresh_agenda()
             self._set_status("Node created")
         except PetFlowError as exc:
             messagebox.showerror("Create node failed", str(exc), parent=self.root)
@@ -291,10 +370,12 @@ class MainWindow:
             graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
             self.context = AppContext.create(graph)
             self.canvas.set_context(self.context)
+            self._refresh_agenda()
             self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
             self._set_status(f"Loaded: {DEFAULT_GRAPH_PATH.name}")
+            self.root.after_idle(self.fit_view)
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
 
@@ -303,18 +384,25 @@ class MainWindow:
             sample_path = DEFAULT_GRAPH_PATH.parent / "sample_graph.json"
             graph = self.context.storage_service.load_graph(sample_path)
             self.context = AppContext.create(graph)
+            self.context.graph_layout_service.apply_grid_layout(
+                self.context.graph_service
+            )
             self.canvas.set_context(self.context)
+            self._refresh_agenda()
             self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
             self._set_status("Loaded sample graph")
+            self.root.after_idle(self.fit_view)
         except PetFlowError as exc:
             messagebox.showerror("Sample load failed", str(exc), parent=self.root)
 
     def layout_graph(self) -> None:
         self.context.graph_layout_service.apply_grid_layout(self.context.graph_service)
         self.canvas.redraw()
+        self._refresh_agenda()
         self._set_status("Graph layout refreshed")
+        self.root.after_idle(self.fit_view)
 
     def zoom_in(self) -> None:
         self.canvas.zoom_in()
@@ -328,11 +416,15 @@ class MainWindow:
         self.canvas.reset_view()
         self._set_status("View reset")
 
+    def fit_view(self) -> None:
+        self.canvas.fit_graph_to_view()
+        self._set_status("View fitted")
+
     def recommend_next(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
-            self.recommendation_var.set("Recommended: -")
-            self._schedule_toolbar_layout()
+            self.recommendation_var.set("Suggested next: No available node")
+            self.recommendation_detail_var.set("Create or load tasks to begin.")
             messagebox.showinfo("Recommend Next", "No available node.", parent=self.root)
             return
         reason = self.context.recommendation_engine.recommend_reason(
@@ -342,9 +434,12 @@ class MainWindow:
         self.canvas.select_node(node.id)
         self.context.pet_service.react_to_recommendation(node)
         self.canvas.redraw()
-        self.recommendation_var.set(f"Recommended: {node.title} | {reason}")
-        self._schedule_toolbar_layout()
+        self._render_pet()
+        self._refresh_agenda()
+        self.recommendation_var.set(f"Suggested next: {node.title}")
+        self.recommendation_detail_var.set(reason.replace(", ", "  \u00b7  "))
         self._set_status(f"Recommended: {node.title}")
+        self.root.after_idle(self.fit_view)
         messagebox.showinfo(
             "Recommend Next",
             f"Next: {node.title}\nReason: {reason}\nStatus: {node.status.value}\nPriority: P{node.priority}",
@@ -363,9 +458,11 @@ class MainWindow:
             )
             self.canvas.select_node(dialog.created_node_ids[0])
         self.canvas.redraw()
+        self._refresh_agenda()
         self._update_recommendation_label()
         self._sync_pet_to_recommendation()
         self._set_status("Agent proposal applied")
+        self.root.after_idle(self.fit_view)
 
     def open_settings_dialog(self) -> None:
         dialog = SettingsDialog(self.root)
@@ -395,7 +492,7 @@ class MainWindow:
             self._set_status("Clipboard: no usable content")
             messagebox.showinfo("Clipboard", "No usable clipboard content.", parent=self.root)
             return
-        x, y = self._next_node_position()
+        x, y = self._next_node_position(NodeType.RESOURCE)
         resource_path = capture.content if capture.resource_type == "url" else ""
         node = self.context.graph_service.create_resource_node(
             title=capture.title,
@@ -409,8 +506,8 @@ class MainWindow:
         self.canvas.redraw()
         self._set_status(f"Clipboard captured: {node.title}")
 
-    def attach_file_to_selected_node(self) -> None:
-        node_id = self.canvas.selected_node_id()
+    def attach_file_to_selected_node(self, node_id: str | None = None) -> None:
+        node_id = node_id or self.canvas.selected_node_id()
         if node_id is None:
             messagebox.showinfo("Attach File", "Select a node first.", parent=self.root)
             return
@@ -424,8 +521,8 @@ class MainWindow:
         except PetFlowError as exc:
             messagebox.showerror("Attach failed", str(exc), parent=self.root)
 
-    def copy_selected_resource(self) -> None:
-        node_id = self.canvas.selected_node_id()
+    def copy_selected_resource(self, node_id: str | None = None) -> None:
+        node_id = node_id or self.canvas.selected_node_id()
         if node_id is None:
             messagebox.showinfo(
                 "Copy Resource", "Select a resource node first.", parent=self.root
@@ -457,12 +554,14 @@ class MainWindow:
                 self.context.graph.pet.visible = True
                 self.context.graph.pet.touch()
                 self.canvas.redraw()
+                self._render_pet()
             else:
                 self.context.pet_service.move_to_node(
                     current_node.id,
                     speech=f"Focus: {current_node.title}",
                 )
                 self.canvas.redraw()
+                self._render_pet()
             self._set_status("Focus mode: on")
         else:
             self.focus_started_at = None
@@ -471,20 +570,148 @@ class MainWindow:
     def _update_recommendation_label(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
-            self.recommendation_var.set("Recommended: -")
-            self._schedule_toolbar_layout()
+            self.recommendation_var.set("Suggested next: No available node")
+            self.recommendation_detail_var.set("Create or load tasks to begin.")
             return
         reason = self.context.recommendation_engine.recommend_reason(
             self.context.graph,
             node,
         )
-        self.recommendation_var.set(f"Recommended: {node.title} | {reason}")
-        self._schedule_toolbar_layout()
+        self.recommendation_var.set(f"Suggested next: {node.title}")
+        self.recommendation_detail_var.set(reason.replace(", ", "  \u00b7  "))
+
+    def _refresh_agenda(self) -> None:
+        if self.agenda_panel is not None:
+            self.agenda_panel.agenda_service = self.context.agenda_service
+            self.agenda_panel.refresh(self.context.graph)
+
+    def _select_agenda_node(self, node_id: str) -> None:
+        self.canvas.select_node(node_id)
+        node = self.context.graph.get_node(node_id)
+        if node is not None:
+            self._set_status(f"Selected: {node.title}")
+
+    def _on_canvas_graph_changed(self) -> None:
+        self._refresh_agenda()
+        self._update_recommendation_label()
+        self._render_pet()
 
     def _sync_pet_to_recommendation(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         self.context.pet_service.react_to_recommendation(node)
         self.canvas.redraw()
+        self._render_pet()
+
+    def _render_pet(self, reaction: str | None = None) -> None:
+        if self.pet_panel is not None:
+            self.pet_panel.render_pet(self.context.graph.pet, reaction)
+
+    def _submit_pet_request(self, message: str, mode: str) -> None:
+        if self.pet_panel is None or self._pet_agent_busy:
+            return
+        self._pet_agent_busy = True
+        self.pet_panel.add_message("You", message)
+        self.pet_panel.set_busy(True)
+        self.context.graph.pet.state = PetStateType.THINK
+        self.context.graph.pet.speech = (
+            "Planning a workflow."
+            if mode == "plan"
+            else "Thinking about your question."
+        )
+        self.context.graph.pet.visible = True
+        self.context.graph.pet.touch()
+        self._render_pet()
+        prompts = PromptBuilder()
+        if mode == "plan":
+            prompt = prompts.build_companion_planning_prompt(
+                message, self.context.graph
+            )
+        else:
+            prompt = prompts.build_companion_chat_prompt(message, self.context.graph)
+
+        def request_plan() -> None:
+            try:
+                proposal = AgentClient.from_settings().complete_json(prompt)
+                error: PetFlowError | None = None
+            except PetFlowError as exc:
+                proposal = None
+                error = exc
+            self._pet_agent_results.put((mode, proposal, error))
+
+        Thread(target=request_plan, daemon=True).start()
+        self.root.after(50, self._poll_pet_planning_result)
+
+    def _poll_pet_planning_result(self) -> None:
+        if not self._pet_agent_busy:
+            return
+        try:
+            mode, proposal, error = self._pet_agent_results.get_nowait()
+        except Empty:
+            self.root.after(50, self._poll_pet_planning_result)
+            return
+        self._finish_pet_request(mode, proposal, error)
+
+    def _finish_pet_request(
+        self,
+        mode: str,
+        proposal: dict[str, object] | None,
+        error: PetFlowError | None,
+    ) -> None:
+        self._pet_agent_busy = False
+        if self.pet_panel is None:
+            return
+        self.pet_panel.set_busy(False)
+        if error is not None or proposal is None:
+            message = str(error) if error is not None else "No proposal returned."
+            self.pet_panel.add_message("Pet", f"I could not plan that: {message}")
+            self.context.graph.pet.state = PetStateType.ANGRY
+            self.context.graph.pet.speech = message
+            self._render_pet()
+            return
+        if mode == "chat":
+            reply = proposal.get("reply")
+            if not isinstance(reply, str) or not reply.strip():
+                self.pet_panel.add_message(
+                    "Pet", "The agent returned no readable answer."
+                )
+                return
+            self.pet_panel.add_message("Pet", reply)
+            self.context.graph.pet.state = PetStateType.HAPPY
+            self.context.graph.pet.speech = reply
+            self.context.graph.pet.touch()
+            self._render_pet()
+            self._set_status("Companion answered")
+            return
+        try:
+            created = AgentExecutor(self.context.graph_service).apply_graph_proposal(
+                proposal
+            )
+        except PetFlowError as exc:
+            self.pet_panel.add_message("Pet", f"The proposed flow was invalid: {exc}")
+            self.context.graph.pet.state = PetStateType.ANGRY
+            self.context.graph.pet.speech = str(exc)
+            self._render_pet()
+            return
+        self.context.graph_layout_service.apply_grid_layout(self.context.graph_service)
+        recommended = self.context.recommendation_engine.recommend_next(
+            self.context.graph
+        )
+        self.context.pet_service.react_to_recommendation(recommended)
+        if recommended is not None:
+            self.canvas.select_node(recommended.id)
+            next_text = f" Next: {recommended.title}."
+        else:
+            next_text = ""
+        self.pet_panel.add_message(
+            "Pet",
+            f"Added {len(created)} tasks to the canvas.{next_text}",
+        )
+        self.canvas.redraw()
+        self._refresh_agenda()
+        self._update_recommendation_label()
+        self._render_pet()
+        self._set_status(f"Companion planned {len(created)} tasks")
+        self.root.after_idle(self.fit_view)
 
     def _set_status(self, message: str) -> None:
         self.status_message = message
@@ -523,11 +750,23 @@ class MainWindow:
         seconds = total_seconds % 60
         return f"{minutes:02d}:{seconds:02d}"
 
-    def _next_node_position(self) -> tuple[float, float]:
-        count = len(self.context.graph.nodes)
-        column = count % 4
-        row = count // 4
-        return 120.0 + column * 210.0, 120.0 + row * 120.0
+    def _next_node_position(
+        self, node_type: NodeType = NodeType.TASK
+    ) -> tuple[float, float]:
+        primary = [
+            node
+            for node in self.context.graph.nodes.values()
+            if node.type not in {NodeType.RESOURCE, NodeType.REWARD}
+        ]
+        if node_type == NodeType.RESOURCE:
+            resource_count = sum(
+                node.type == NodeType.RESOURCE
+                for node in self.context.graph.nodes.values()
+            )
+            return 120.0 + resource_count * 250.0, 290.0
+        if node_type == NodeType.REWARD:
+            return 120.0 + len(primary) * 250.0, 120.0
+        return 120.0 + len(primary) * 250.0, 120.0
 
     def run(self) -> None:
         self.root.mainloop()

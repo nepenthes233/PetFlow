@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 import tkinter as tk
 from tkinter import ttk
 
@@ -18,7 +19,7 @@ class NodeDialog(tk.Toplevel):
         super().__init__(master)
         self.title("Edit Node" if node else "New Node")
         self.resizable(True, True)
-        self.geometry("520x720")
+        self.geometry("560x780")
         self.result: dict[str, object] | None = None
 
         self._title_var = tk.StringVar(value=node.title if node else "")
@@ -45,7 +46,12 @@ class NodeDialog(tk.Toplevel):
         self._repeat_type_var = tk.StringVar(
             value=(node.repeat_type.value if node else RepeatType.NONE.value)
         )
-        self._next_due_var = tk.StringVar(value=node.next_due_at if node else "")
+        self._repeat_interval_var = tk.IntVar(
+            value=(node.repeat_interval if node else 1)
+        )
+        self._next_due_var = tk.StringVar(
+            value=(node.next_due_at[:10] if node and node.next_due_at else "")
+        )
         self._streak_var = tk.IntVar(value=node.streak if node else 0)
         self._error_var = tk.StringVar(value="")
         self._attachments = list(node.attachments) if node else []
@@ -147,45 +153,88 @@ class NodeDialog(tk.Toplevel):
         self._checklist_entry.insert("1.0", self._checklist_text)
         self._checklist_entry.grid(row=10, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(body, text="Repeat").grid(row=11, column=0, sticky="w", pady=(0, 8))
+        schedule = ttk.LabelFrame(body, text="Schedule", padding=(12, 10))
+        schedule.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(6, 12))
+        schedule.columnconfigure(1, weight=1)
+
+        ttk.Label(schedule, text="Date").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Entry(schedule, textvariable=self._next_due_var, width=20).grid(
+            row=0, column=1, sticky="w", pady=(0, 8)
+        )
+        date_actions = ttk.Frame(schedule)
+        date_actions.grid(row=1, column=1, sticky="w", pady=(0, 10))
+        ttk.Button(
+            date_actions,
+            text="Today",
+            command=lambda: self._set_due_date(0),
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            date_actions,
+            text="Tomorrow",
+            command=lambda: self._set_due_date(1),
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            date_actions,
+            text="+7 Days",
+            command=lambda: self._set_due_date(7),
+        ).pack(side="left", padx=(0, 6))
+        ttk.Button(
+            date_actions,
+            text="Clear",
+            command=lambda: self._next_due_var.set(""),
+        ).pack(side="left")
+
+        ttk.Label(schedule, text="Repeats").grid(row=2, column=0, sticky="w", pady=(0, 8))
         ttk.Combobox(
-            body,
+            schedule,
             textvariable=self._repeat_type_var,
             values=[repeat_type.value for repeat_type in RepeatType],
             state="readonly",
-            width=34,
-        ).grid(row=11, column=1, sticky="ew", pady=(0, 8))
+            width=18,
+        ).grid(row=2, column=1, sticky="w", pady=(0, 8))
 
-        ttk.Label(body, text="Next Due").grid(row=12, column=0, sticky="w", pady=(0, 8))
-        ttk.Entry(body, textvariable=self._next_due_var, width=36).grid(
-            row=12, column=1, sticky="ew", pady=(0, 8)
-        )
+        ttk.Label(schedule, text="Every").grid(row=3, column=0, sticky="w")
+        interval = ttk.Frame(schedule)
+        interval.grid(row=3, column=1, sticky="w")
+        ttk.Spinbox(
+            interval,
+            from_=1,
+            to=365,
+            textvariable=self._repeat_interval_var,
+            width=6,
+        ).pack(side="left")
+        ttk.Label(interval, text="cycle(s)").pack(side="left", padx=(8, 0))
+        ttk.Label(
+            schedule,
+            text="Use YYYY-MM-DD. Repeating items appear on each occurrence.",
+            foreground="#64748b",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
-        ttk.Label(body, text="Streak").grid(row=13, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(body, text="Streak").grid(row=12, column=0, sticky="w", pady=(0, 8))
         ttk.Spinbox(
             body,
             from_=0,
             to=9999,
             textvariable=self._streak_var,
             width=8,
-        ).grid(row=13, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=12, column=1, sticky="w", pady=(0, 8))
 
         ttk.Label(body, text="Attachments").grid(
-            row=14, column=0, sticky="nw", pady=(0, 8)
+            row=13, column=0, sticky="nw", pady=(0, 8)
         )
         ttk.Label(
             body,
             text=self._attachments_text(),
             wraplength=280,
             foreground="#475569",
-        ).grid(row=14, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=13, column=1, sticky="w", pady=(0, 8))
 
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=15, column=0, columnspan=2, sticky="w", pady=(4, 0)
+            row=14, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=16, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=15, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -199,6 +248,8 @@ class NodeDialog(tk.Toplevel):
             estimated_minutes = int(self._estimated_var.get())
             actual_minutes = int(self._actual_var.get())
             streak = int(self._streak_var.get())
+            repeat_interval = int(self._repeat_interval_var.get())
+            next_due_at = self._next_due_var.get().strip()
             if not title:
                 raise ValueError("Title cannot be empty.")
             if priority < 1 or priority > 5:
@@ -209,6 +260,13 @@ class NodeDialog(tk.Toplevel):
                 raise ValueError("Actual minutes cannot be negative.")
             if streak < 0:
                 raise ValueError("Streak cannot be negative.")
+            if repeat_interval < 1:
+                raise ValueError("Repeat interval must be at least 1.")
+            if next_due_at:
+                try:
+                    date.fromisoformat(next_due_at)
+                except ValueError as exc:
+                    raise ValueError("Date must use YYYY-MM-DD.") from exc
             checklist = [
                 line.strip()
                 for line in self._checklist_entry.get("1.0", tk.END).splitlines()
@@ -227,7 +285,8 @@ class NodeDialog(tk.Toplevel):
                 "resource_path": self._resource_path_var.get().strip(),
                 "checklist": checklist,
                 "repeat_type": RepeatType(self._repeat_type_var.get()),
-                "next_due_at": self._next_due_var.get().strip(),
+                "repeat_interval": repeat_interval,
+                "next_due_at": next_due_at,
                 "streak": streak,
             }
             self.destroy()
@@ -242,6 +301,9 @@ class NodeDialog(tk.Toplevel):
         if not self._attachments:
             return "-"
         return "\n".join(self._attachments)
+
+    def _set_due_date(self, offset: int) -> None:
+        self._next_due_var.set((date.today() + timedelta(days=offset)).isoformat())
 
     @staticmethod
     def _parse_tags(value: str) -> list[str]:

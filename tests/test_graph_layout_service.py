@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from petflow.app import AppContext
+from petflow.domain.enums import EdgeType, NodeType
 from petflow.services import GraphLayoutService
 
 
@@ -50,6 +51,27 @@ class GraphLayoutServiceTest(unittest.TestCase):
         self.assertEqual(first.y, 380)
         self.assertEqual(second.y, 380)
         self.assertGreater(second.x, first.x)
+
+    def test_flow_positions_put_resources_below_and_rewards_after_main_path(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="First")
+        second = context.graph_service.create_node(title="Second")
+        resource = context.graph_service.create_node(
+            title="Docs", node_type=NodeType.RESOURCE
+        )
+        reward = context.graph_service.create_node(
+            title="Celebrate", node_type=NodeType.REWARD
+        )
+        context.graph_service.create_edge(first.id, second.id, EdgeType.DEPENDENCY)
+        context.graph.workspace.current_node_id = second.id
+        service = GraphLayoutService(start_x=20, start_y=30, column_gap=240, row_gap=130)
+
+        positions = service.flow_positions(context.graph)
+
+        self.assertGreater(positions[second.id][0], positions[first.id][0])
+        self.assertGreater(positions[resource.id][1], positions[first.id][1])
+        self.assertEqual(positions[resource.id][0], positions[second.id][0])
+        self.assertGreater(positions[reward.id][0], positions[second.id][0])
 
 
 if __name__ == "__main__":

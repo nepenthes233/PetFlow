@@ -46,10 +46,13 @@ class GraphService:
         resource_path: str = "",
         checklist: list[ChecklistItem] | list[str] | None = None,
         repeat_type: RepeatType = RepeatType.NONE,
+        repeat_interval: int = 1,
         next_due_at: str | None = None,
         streak: int = 0,
     ) -> Node:
-        self._validate_node_input(title, priority, estimated_minutes, streak)
+        self._validate_node_input(
+            title, priority, estimated_minutes, streak, repeat_interval
+        )
         if actual_minutes < 0:
             raise GraphValidationError("Actual minutes cannot be negative.")
         node = Node(
@@ -68,6 +71,7 @@ class GraphService:
             resource_path=resource_path.strip(),
             checklist=self._normalize_checklist(checklist or []),
             repeat_type=repeat_type,
+            repeat_interval=repeat_interval,
             next_due_at=next_due_at,
             streak=streak,
         )
@@ -137,7 +141,10 @@ class GraphService:
         )
         actual_minutes = int(changes.get("actual_minutes", current.actual_minutes))
         streak = int(changes.get("streak", current.streak))
-        self._validate_node_input(title, priority, estimated_minutes, streak)
+        repeat_interval = int(changes.get("repeat_interval", current.repeat_interval))
+        self._validate_node_input(
+            title, priority, estimated_minutes, streak, repeat_interval
+        )
         if actual_minutes < 0:
             raise GraphValidationError("Actual minutes cannot be negative.")
         if "title" in changes:
@@ -171,6 +178,7 @@ class GraphService:
         resource_path: str | None = None,
         checklist: list[ChecklistItem] | list[str] | None = None,
         repeat_type: RepeatType | None = None,
+        repeat_interval: int | None = None,
         next_due_at: str | None = None,
         streak: int | None = None,
     ) -> Node:
@@ -186,6 +194,8 @@ class GraphService:
         }
         if repeat_type is not None:
             changes["repeat_type"] = repeat_type
+        if repeat_interval is not None:
+            changes["repeat_interval"] = repeat_interval
         if next_due_at is not None:
             changes["next_due_at"] = next_due_at
         if streak is not None:
@@ -221,12 +231,14 @@ class GraphService:
             if current.type == NodeType.ROUTINE:
                 changes["last_completed_at"] = completed_at_value
                 changes["streak"] = current.streak + 1
+            if current.repeat_type != RepeatType.NONE:
                 next_due = next_due_at(
                     completed_at,
                     current.repeat_type,
                     current.repeat_interval,
                 )
                 changes["next_due_at"] = next_due.isoformat() if next_due else None
+                changes["status"] = NodeStatus.TODO
         elif previous_status == NodeStatus.DONE:
             changes["completed_at"] = None
 
@@ -308,7 +320,11 @@ class GraphService:
 
     @staticmethod
     def _validate_node_input(
-        title: str, priority: int, estimated_minutes: int, streak: int = 0
+        title: str,
+        priority: int,
+        estimated_minutes: int,
+        streak: int = 0,
+        repeat_interval: int = 1,
     ) -> None:
         if not title.strip():
             raise GraphValidationError("Node title cannot be empty.")
@@ -318,6 +334,8 @@ class GraphService:
             raise GraphValidationError("Estimated minutes cannot be negative.")
         if streak < 0:
             raise GraphValidationError("Routine streak cannot be negative.")
+        if repeat_interval < 1:
+            raise GraphValidationError("Repeat interval must be at least 1.")
 
     @staticmethod
     def _coerce_edge_type(value: object) -> EdgeType:

@@ -5,7 +5,7 @@ from typing import Any
 from petflow.app.graph_service import GraphService
 from petflow.agent.proposal import AgentProposalValidator
 from petflow.domain.entities import Node
-from petflow.domain.enums import EdgeType, NodeStatus, NodeType
+from petflow.domain.enums import EdgeType, NodeStatus, NodeType, RepeatType
 from petflow.domain.exceptions import GraphValidationError
 
 
@@ -39,6 +39,11 @@ class AgentExecutor:
                 status=NodeStatus(node_data.get("status", NodeStatus.TODO.value)),
                 priority=int(node_data.get("priority", 3)),
                 estimated_minutes=int(node_data.get("estimated_minutes", 30)),
+                repeat_type=RepeatType(
+                    node_data.get("repeat_type", RepeatType.NONE.value)
+                ),
+                repeat_interval=int(node_data.get("repeat_interval", 1)),
+                next_due_at=node_data.get("next_due_at"),
                 x=float(node_data.get("x", 100.0)),
                 y=float(node_data.get("y", 100.0)),
             )

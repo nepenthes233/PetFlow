@@ -1,15 +1,50 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from datetime import datetime
+from typing import Any, ClassVar
 
-from petflow.domain.enums import EdgeType, NodeStatus, NodeType
+from petflow.domain.enums import EdgeType, NodeStatus, NodeType, RepeatType
 from petflow.domain.exceptions import GraphValidationError
 
 
 @dataclass(slots=True)
 class AgentProposalValidator:
     max_nodes: int = 12
+    _ENUM_ALIASES: ClassVar[dict[type, dict[str, str]]] = {
+        NodeStatus: {
+            "pending": NodeStatus.TODO.value,
+            "not_started": NodeStatus.TODO.value,
+            "in_progress": NodeStatus.DOING.value,
+            "active": NodeStatus.DOING.value,
+            "complete": NodeStatus.DONE.value,
+            "completed": NodeStatus.DONE.value,
+            "on_hold": NodeStatus.PAUSED.value,
+        },
+        NodeType: {
+            "milestone": NodeType.CHECKPOINT.value,
+            "reference": NodeType.RESOURCE.value,
+        },
+        EdgeType: {
+            "main": EdgeType.DEPENDENCY.value,
+            "prerequisite": EdgeType.DEPENDENCY.value,
+            "reference": EdgeType.RECOMMENDATION.value,
+        },
+        RepeatType: {
+            "no_repeat": RepeatType.NONE.value,
+            "once": RepeatType.NONE.value,
+        },
+    }
+    _PRIORITY_ALIASES: ClassVar[dict[str, int]] = {
+        "lowest": 1,
+        "low": 2,
+        "medium": 3,
+        "normal": 3,
+        "high": 4,
+        "highest": 5,
+        "urgent": 5,
+        "critical": 5,
+    }
 
     def validate(self, proposal: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(proposal, dict):
@@ -56,8 +91,20 @@ class AgentProposalValidator:
             )
         node_type = self._coerce_enum(NodeType, node.get("type"), NodeType.TASK)
         status = self._coerce_enum(NodeStatus, node.get("status"), NodeStatus.TODO)
-        priority = int(node.get("priority", 3))
-        estimated_minutes = int(node.get("estimated_minutes", 30))
+        repeat_type = self._coerce_enum(
+            RepeatType, node.get("repeat_type"), RepeatType.NONE
+        )
+        priority = self._normalize_priority(node.get("priority", 3))
+        estimated_minutes = self._normalize_integer(
+            node.get("estimated_minutes", 30),
+            default=30,
+            field="estimated_minutes",
+        )
+        repeat_interval = self._normalize_integer(
+            node.get("repeat_interval", 1),
+            default=1,
+            field="repeat_interval",
+        )
         if priority < 1 or priority > 5:
             raise GraphValidationError(
                 "Agent proposal node priority must be between 1 and 5."
@@ -65,6 +112,10 @@ class AgentProposalValidator:
         if estimated_minutes < 0:
             raise GraphValidationError(
                 "Agent proposal node estimate cannot be negative."
+            )
+        if repeat_interval < 1:
+            raise GraphValidationError(
+                "Agent proposal node repeat interval must be at least 1."
             )
         return {
             "id": str(node.get("id", f"proposal_node_{index + 1}")),
@@ -74,8 +125,17 @@ class AgentProposalValidator:
             "status": status.value,
             "priority": priority,
             "estimated_minutes": estimated_minutes,
-            "x": float(node.get("x", 100.0 + index * 210.0)),
-            "y": float(node.get("y", 120.0)),
+            "repeat_type": repeat_type.value,
+            "repeat_interval": repeat_interval,
+            "next_due_at": self._normalize_due_at(node.get("next_due_at")),
+            "x": self._normalize_float(
+                node.get("x", 100.0 + index * 210.0),
+                default=100.0 + index * 210.0,
+                field="x",
+            ),
+            "y": self._normalize_float(
+                node.get("y", 120.0), default=120.0, field="y"
+            ),
         }
 
     def _validate_edge(
@@ -106,13 +166,59 @@ class AgentProposalValidator:
             "label": str(edge.get("label", "")).strip(),
         }
 
-    @staticmethod
-    def _coerce_enum(enum_cls: type, value: object, default: object) -> object:
+    def _coerce_enum(self, enum_cls: type, value: object, default: object) -> object:
         if value is None:
             return default
         if isinstance(value, enum_cls):
             return value
+        normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        normalized = self._ENUM_ALIASES.get(enum_cls, {}).get(normalized, normalized)
         try:
-            return enum_cls(str(value))
+            return enum_cls(normalized)
         except ValueError as exc:
             raise GraphValidationError(f"Invalid enum value: {value}") from exc
+
+    def _normalize_priority(self, value: object) -> int:
+        if value is None:
+            return 3
+        normalized = str(value).strip().lower()
+        if normalized in self._PRIORITY_ALIASES:
+            return self._PRIORITY_ALIASES[normalized]
+        return self._normalize_integer(value, default=3, field="priority")
+
+    @staticmethod
+    def _normalize_integer(value: object, default: int, field: str) -> int:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return default
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise GraphValidationError(
+                f"Agent proposal node {field} must be a number."
+            ) from exc
+
+    @staticmethod
+    def _normalize_float(value: object, default: float, field: str) -> float:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise GraphValidationError(
+                f"Agent proposal node {field} must be a number."
+            ) from exc
+
+    @staticmethod
+    def _normalize_due_at(value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if not normalized:
+            return None
+        try:
+            datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise GraphValidationError(
+                "Agent proposal node next_due_at must be an ISO date or datetime."
+            ) from exc
+        return normalized

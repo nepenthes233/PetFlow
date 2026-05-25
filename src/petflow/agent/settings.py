@@ -17,6 +17,12 @@ class AgentSettings:
     wire_api: str = "chat_completions"
     mock_mode: bool = False
 
+    def __post_init__(self) -> None:
+        self.api_key = self.api_key.strip()
+        self.base_url = self.base_url.strip().rstrip("/")
+        self.model = self.model.strip()
+        self.wire_api = self.wire_api.strip()
+
     @classmethod
     def load(cls, path: str | Path = DEFAULT_SETTINGS_PATH) -> "AgentSettings":
         file_path = Path(path)
