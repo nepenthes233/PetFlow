@@ -4,11 +4,12 @@ import tkinter as tk
 
 from petflow.domain.entities import PetState
 from petflow.domain.enums import PetStateType
+from petflow.ui.theme import BORDER, PRIMARY, SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY
 
 
 class PetView:
-    WIDTH = 218
-    HEIGHT = 184
+    WIDTH = 260
+    HEIGHT = 118
 
     def __init__(
         self,
@@ -26,111 +27,107 @@ class PetView:
         face_fill = self._fill_for_state(visual_state)
 
         self.canvas.create_text(
+            0,
             14,
-            16,
-            text="COMPANION",
+            text="Status",
             anchor="w",
-            fill="#6B7280",
-            font=(self.font_family, 9, "bold"),
+            fill=TEXT_MUTED,
+            font=(self.font_family, 9),
             tags=("pet",),
         )
         self._pill(
-            143,
-            7,
-            204,
-            27,
-            visual_state.value.upper(),
-            face_fill,
-            "#475569",
+            48,
+            4,
+            136,
+            24,
+            self._state_label(visual_state),
+            "#F8FAFC",
+            TEXT_SECONDARY,
         )
 
         self.canvas.create_oval(
-            77,
-            41,
-            141,
-            97,
+            0,
+            40,
+            44,
+            84,
             fill=face_fill,
-            outline="#CBD5E1",
-            width=2,
+            outline=BORDER,
+            width=1,
             tags=("pet",),
         )
         self._draw_face(visual_state, reaction)
-        if reaction in {"complete", "arrive"}:
-            self._draw_sparkles()
-        elif reaction == "move":
-            self._draw_motion_marks()
 
         self.canvas.create_text(
-            109,
-            120,
+            58,
+            45,
             text=self._message(pet.state, reaction),
-            anchor="n",
-            justify="center",
-            width=190,
-            fill="#374151",
-            font=(self.font_family, 9),
+            anchor="nw",
+            justify="left",
+            width=185,
+            fill=TEXT_PRIMARY,
+            font=(self.font_family, 10),
             tags=("pet",),
         )
 
     def _draw_face(self, state: PetStateType, reaction: str | None) -> None:
-        eye_y = 63
+        eye_y = 56
         if state == PetStateType.HAPPY or reaction in {"complete", "arrive"}:
             self.canvas.create_arc(
-                91, eye_y, 101, eye_y + 8, start=0, extent=180,
-                style=tk.ARC, outline="#1F2937", width=2, tags=("pet",)
+                13, eye_y, 20, eye_y + 6, start=0, extent=180,
+                style=tk.ARC, outline=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             self.canvas.create_arc(
-                117, eye_y, 127, eye_y + 8, start=0, extent=180,
-                style=tk.ARC, outline="#1F2937", width=2, tags=("pet",)
+                27, eye_y, 34, eye_y + 6, start=0, extent=180,
+                style=tk.ARC, outline=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             self.canvas.create_arc(
-                97, 69, 121, 88, start=190, extent=160,
-                style=tk.ARC, outline="#1F2937", width=2, tags=("pet",)
+                15, 61, 33, 76, start=195, extent=150,
+                style=tk.ARC, outline=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             return
         if state == PetStateType.THINK:
             self.canvas.create_oval(
-                93, eye_y, 98, eye_y + 5, fill="#1F2937", outline="", tags=("pet",)
+                15, eye_y, 19, eye_y + 4, fill=TEXT_PRIMARY, outline="", tags=("pet",)
             )
             self.canvas.create_oval(
-                119, eye_y - 2, 125, eye_y + 4, fill="#1F2937", outline="", tags=("pet",)
+                29, eye_y - 1, 33, eye_y + 3, fill=TEXT_PRIMARY, outline="", tags=("pet",)
             )
             self.canvas.create_line(
-                101, 82, 117, 80, fill="#1F2937", width=2, tags=("pet",)
+                17, 72, 31, 71, fill=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             return
         if state == PetStateType.ANGRY:
             self.canvas.create_line(
-                90, 60, 100, 65, fill="#1F2937", width=2, tags=("pet",)
+                12, 54, 20, 58, fill=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             self.canvas.create_line(
-                118, 65, 128, 60, fill="#1F2937", width=2, tags=("pet",)
+                28, 58, 36, 54, fill=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             self.canvas.create_line(
-                101, 83, 117, 83, fill="#1F2937", width=2, tags=("pet",)
+                17, 72, 31, 72, fill=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             return
         if state == PetStateType.SLEEP:
             self.canvas.create_line(
-                91, 66, 100, 66, fill="#1F2937", width=2, tags=("pet",)
+                13, 60, 20, 60, fill=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             self.canvas.create_line(
-                118, 66, 127, 66, fill="#1F2937", width=2, tags=("pet",)
+                28, 60, 35, 60, fill=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             self.canvas.create_arc(
-                102, 74, 116, 86, start=20, extent=140,
-                style=tk.ARC, outline="#1F2937", width=2, tags=("pet",)
+                18, 67, 30, 78, start=20, extent=140,
+                style=tk.ARC, outline=TEXT_PRIMARY, width=1, tags=("pet",)
             )
             return
         self.canvas.create_oval(
-            93, eye_y, 99, eye_y + 6, fill="#1F2937", outline="", tags=("pet",)
+            15, eye_y, 20, eye_y + 5, fill=TEXT_PRIMARY, outline="", tags=("pet",)
         )
         self.canvas.create_oval(
-            119, eye_y, 125, eye_y + 6, fill="#1F2937", outline="", tags=("pet",)
+            29, eye_y, 34, eye_y + 5, fill=TEXT_PRIMARY, outline="", tags=("pet",)
         )
         self.canvas.create_arc(
-            99, 72, 119, 86, start=195, extent=150,
-            style=tk.ARC, outline="#1F2937", width=2, tags=("pet",)
+            16, 63, 33, 77, start=195, extent=150,
+            style=tk.ARC, outline=TEXT_PRIMARY, width=1, tags=("pet",)
         )
 
     def _draw_sparkles(self) -> None:
@@ -173,7 +170,7 @@ class PetView:
             (y1 + y2) / 2,
             text=text,
             fill=foreground,
-            font=(self.font_family, 8, "bold"),
+            font=(self.font_family, 8),
             tags=("pet",),
         )
 
@@ -213,13 +210,25 @@ class PetView:
             return "Next task ready.\nLet's continue."
         messages = {
             PetStateType.IDLE: "Ready when you are.",
-            PetStateType.MOVE: "Staying with your\ncurrent focus.",
-            PetStateType.HAPPY: "Progress recorded.\nReady to continue.",
-            PetStateType.THINK: "Thinking about your\nnext move.",
-            PetStateType.ANGRY: "Select a task before\nstarting focus mode.",
+            PetStateType.MOVE: "Tracking current focus.",
+            PetStateType.HAPPY: "Progress recorded.",
+            PetStateType.THINK: "Preparing a response.",
+            PetStateType.ANGRY: "Select a task to start focus.",
             PetStateType.SLEEP: "Taking a quiet break.",
         }
         return messages[state]
+
+    @staticmethod
+    def _state_label(state: PetStateType) -> str:
+        labels = {
+            PetStateType.IDLE: "Idle",
+            PetStateType.MOVE: "Focused",
+            PetStateType.HAPPY: "Updated",
+            PetStateType.THINK: "Waiting",
+            PetStateType.ANGRY: "Needs task",
+            PetStateType.SLEEP: "Quiet",
+        }
+        return labels[state]
 
     @staticmethod
     def _fill_for_state(state: PetStateType) -> str:
@@ -230,7 +239,7 @@ class PetView:
         if state == PetStateType.MOVE:
             return "#DBEAFE"
         if state == PetStateType.ANGRY:
-            return "#FEE2E2"
+            return "#FEF2F2"
         if state == PetStateType.SLEEP:
             return "#E2E8F0"
-        return "#FEF3C7"
+        return "#EFF6FF"

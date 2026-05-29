@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import font as tkfont
 
 PREFERRED_UI_FONTS = (
+    "Segoe UI",
     "PingFang SC",
     "Hiragino Sans GB",
     "Heiti SC",

@@ -12,6 +12,36 @@ from petflow.domain.entities import Edge, Node
 from petflow.domain.enums import EdgeType, NodeStatus, NodeType
 from petflow.domain.exceptions import PetFlowError
 from petflow.ui.dialogs import EdgeDialog, NodeDialog
+from petflow.ui.theme import (
+    APP_BG,
+    BORDER,
+    BORDER_STRONG,
+    CARD_BG_HOVER,
+    DANGER,
+    DANGER_SOFT,
+    DARK_APP_BG,
+    DARK_BORDER,
+    DARK_PANEL_SOFT,
+    DARK_SURFACE,
+    DARK_SURFACE_HOVER,
+    DARK_TEXT,
+    DARK_MUTED,
+    PINK,
+    PINK_SOFT,
+    PRIMARY,
+    PRIMARY_SOFT,
+    PRIMARY_TINT,
+    PURPLE,
+    PURPLE_SOFT,
+    SUCCESS,
+    SUCCESS_SOFT,
+    SURFACE,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    WARNING,
+    WARNING_SOFT,
+)
 
 Point = tuple[float, float]
 
@@ -109,9 +139,11 @@ class GraphCanvas(tk.Canvas):
         on_selection_changed: Callable[[str | None, str | None], None] | None = None,
         on_focus_node_title: Callable[[str], None] | None = None,
         on_status_hint: Callable[[str], None] | None = None,
+        on_create_node: Callable[[], None] | None = None,
+        on_generate_flow: Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
-        super().__init__(master, bg="#F6F8FB", highlightthickness=0, **kwargs)
+        super().__init__(master, bg=APP_BG, highlightthickness=0, **kwargs)
         self.context = context
         self.font_family = font_family
         self._type_font = tkfont.Font(family=font_family, size=9, weight="bold")
@@ -126,6 +158,8 @@ class GraphCanvas(tk.Canvas):
         self.on_selection_changed = on_selection_changed
         self.on_focus_node_title = on_focus_node_title
         self.on_status_hint = on_status_hint
+        self.on_create_node = on_create_node
+        self.on_generate_flow = on_generate_flow
         self._node_items: dict[str, list[int]] = {}
         self._item_to_node: dict[int, str] = {}
         self._edge_items: dict[str, list[int]] = {}
@@ -147,6 +181,14 @@ class GraphCanvas(tk.Canvas):
         self._edge_start_node_id: str | None = None
         self._completion_flow: CompletionFlow | None = None
         self._completion_after_id: str | None = None
+        self._reveal_active = False
+        self._visible_reveal_nodes: set[str] = set()
+        self._visible_reveal_edges: set[str] = set()
+        self._reveal_after_id: str | None = None
+        self._spotlight_node_ids: set[str] = set()
+        self._spotlight_after_id: str | None = None
+        self._edit_grid_mode = False
+        self._dark_mode = False
 
         self.bind("<Button-1>", self._on_click)
         self.bind("<Shift-Button-1>", self._on_pan_start)
@@ -159,6 +201,7 @@ class GraphCanvas(tk.Canvas):
         self.bind("<Double-Button-1>", self._on_double_click)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", self._on_leave)
+        self.bind("<Configure>", self._on_configure)
         self.bind("<Button-2>", self._on_context_menu)
         self.bind("<Button-3>", self._on_context_menu)
         self.bind("<Escape>", lambda _event: self.cancel_edge_mode())
@@ -176,6 +219,10 @@ class GraphCanvas(tk.Canvas):
         self._hovered_node_id = None
         self._hovered_edge_id = None
         self._completion_flow = None
+        self._reveal_active = False
+        self._visible_reveal_nodes.clear()
+        self._visible_reveal_edges.clear()
+        self._spotlight_node_ids.clear()
         self._notify_pet_reaction(None)
         if self._completion_after_id is not None:
             self.after_cancel(self._completion_after_id)
@@ -183,6 +230,57 @@ class GraphCanvas(tk.Canvas):
         self._panning = False
         self.redraw()
         self._notify_selection_changed()
+
+    def play_reveal(self, node_order: list[str] | None = None) -> None:
+        if self._reveal_after_id is not None:
+            self.after_cancel(self._reveal_after_id)
+            self._reveal_after_id = None
+        nodes = node_order or list(self.context.graph.nodes.keys())
+        edges = list(self.context.graph.edges.keys())
+        self._reveal_active = True
+        self._visible_reveal_nodes.clear()
+        self._visible_reveal_edges.clear()
+
+        sequence: list[tuple[str, str]] = [("node", node_id) for node_id in nodes]
+        sequence.extend(("edge", edge_id) for edge_id in edges)
+
+        def step(index: int = 0) -> None:
+            if index >= len(sequence):
+                self._reveal_active = False
+                self._reveal_after_id = None
+                recommended = self._recommended_node_id()
+                if recommended is not None:
+                    self.spotlight_nodes([recommended], duration_ms=900)
+                self.redraw()
+                return
+            kind, item_id = sequence[index]
+            if kind == "node":
+                self._visible_reveal_nodes.add(item_id)
+            else:
+                self._visible_reveal_edges.add(item_id)
+            self.redraw()
+            self._reveal_after_id = self.after(95, lambda: step(index + 1))
+
+        step()
+
+    def spotlight_nodes(self, node_ids: list[str], duration_ms: int = 800) -> None:
+        if self._spotlight_after_id is not None:
+            self.after_cancel(self._spotlight_after_id)
+        self._spotlight_node_ids = set(node_ids)
+        self.redraw()
+
+        def clear() -> None:
+            self._spotlight_node_ids.clear()
+            self._spotlight_after_id = None
+            self.redraw()
+
+        self._spotlight_after_id = self.after(duration_ms, clear)
+
+    def set_visual_mode(self, *, edit_grid: bool, dark_mode: bool) -> None:
+        self._edit_grid_mode = edit_grid
+        self._dark_mode = dark_mode
+        self.configure(bg=self._canvas_bg())
+        self.redraw()
 
     def redraw(self) -> None:
         self._redraw()
@@ -319,6 +417,7 @@ class GraphCanvas(tk.Canvas):
         self._edge_items.clear()
         self._item_to_edge.clear()
         self._label_boxes.clear()
+        self._draw_mission_background()
 
         if not self.context.graph.nodes:
             self._draw_empty_hint()
@@ -326,31 +425,172 @@ class GraphCanvas(tk.Canvas):
             return
 
         for edge in self.context.graph.edges.values():
+            if self._reveal_active and edge.id not in self._visible_reveal_edges:
+                continue
             self._draw_edge(edge)
         for node in self.context.graph.nodes.values():
+            if self._reveal_active and node.id not in self._visible_reveal_nodes:
+                continue
             self._draw_node(node)
         self._draw_completion_overlay()
         self._draw_edge_mode_hint()
 
+    def _draw_mission_background(self) -> None:
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        bg = self._canvas_bg()
+        self.create_rectangle(0, 0, width, height, fill=bg, outline="", tags=("graph", "bg"))
+        spacing = 28 if self._edit_grid_mode else 32
+        grid_color = DARK_BORDER if self._dark_mode else "#CBD5E1"
+        dot_color = "#27343D" if self._dark_mode else "#E2E8F0"
+        if self._edit_grid_mode:
+            offset_x = int(self.context.graph.workspace.pan_x) % spacing
+            offset_y = int(self.context.graph.workspace.pan_y) % spacing
+            for x in range(offset_x - spacing, width + spacing, spacing):
+                self.create_line(x, 0, x, height, fill=grid_color, width=1, tags=("graph", "bg"))
+            for y in range(offset_y - spacing, height + spacing, spacing):
+                self.create_line(0, y, width, y, fill=grid_color, width=1, tags=("graph", "bg"))
+        else:
+            for x in range(0, width + spacing, spacing):
+                for y in range(0, height + spacing, spacing):
+                    self.create_oval(
+                        x - 1,
+                        y - 1,
+                        x + 1,
+                        y + 1,
+                        fill=dot_color,
+                        outline="",
+                        tags=("graph", "bg"),
+                    )
+        orbit_colors = (
+            ("#172554", "#1E1B4B", "#3B0A2A")
+            if self._dark_mode
+            else ("#EEF2FF", "#F5F3FF", "#FDF2F8")
+        )
+        for radius, color in zip((180, 270, 360), orbit_colors):
+            self.create_oval(
+                width - radius,
+                -radius / 2,
+                width + radius,
+                radius * 1.5,
+                outline=color,
+                width=1,
+                tags=("graph", "bg"),
+            )
+
+    def _canvas_bg(self) -> str:
+        if self._dark_mode:
+            return DARK_PANEL_SOFT if self._edit_grid_mode else DARK_APP_BG
+        return "#EEF2F7" if self._edit_grid_mode else APP_BG
+
+    def _surface(self) -> str:
+        return DARK_SURFACE if self._dark_mode else SURFACE
+
+    def _surface_hover(self) -> str:
+        return DARK_SURFACE_HOVER if self._dark_mode else CARD_BG_HOVER
+
+    def _text_primary(self) -> str:
+        return DARK_TEXT if self._dark_mode else TEXT_PRIMARY
+
+    def _text_muted(self) -> str:
+        return DARK_MUTED if self._dark_mode else TEXT_MUTED
+
+    def _border(self) -> str:
+        return DARK_BORDER if self._dark_mode else BORDER
+
     def _draw_empty_hint(self) -> None:
-        x, y = self._to_screen(80, 40)
-        self.create_text(
-            x,
-            y,
-            text="PetFlow task graph",
-            anchor="w",
-            fill="#334155",
-            font=(self.font_family, 16, "bold"),
+        self.update_idletasks()
+        cx = max(320, self.winfo_width() / 2)
+        cy = max(220, self.winfo_height() / 2)
+        card_w = 420
+        card_h = 190
+        x1 = cx - card_w / 2
+        y1 = cy - card_h / 2
+        x2 = cx + card_w / 2
+        y2 = cy + card_h / 2
+        self._rounded_rectangle(
+            x1,
+            y1,
+            x2,
+            y2,
+            16,
+            fill=self._surface(),
+            outline=self._border(),
+            tags=("graph", "empty-state"),
         )
-        x, y = self._to_screen(80, 72)
         self.create_text(
-            x,
-            y,
-            text="Click New Node to start building your workflow.",
-            anchor="w",
-            fill="#64748b",
+            cx,
+            y1 + 42,
+            text="No workflow yet",
+            anchor="center",
+            fill=self._text_primary(),
+            font=(self.font_family, 18, "bold"),
+            tags=("graph", "empty-state"),
+        )
+        self.create_text(
+            cx,
+            y1 + 74,
+            text="Create a node or ask Companion to generate a task flow.",
+            anchor="center",
+            fill=self._text_muted(),
             font=(self.font_family, 11),
+            tags=("graph", "empty-state"),
         )
+        self._draw_empty_button(
+            cx - 92,
+            y1 + 122,
+            "New Node",
+            "empty-new-node",
+            primary=True,
+        )
+        self._draw_empty_button(
+            cx + 92,
+            y1 + 122,
+            "Generate",
+            "empty-generate",
+            primary=False,
+        )
+
+    def _draw_empty_button(
+        self,
+        cx: float,
+        cy: float,
+        text: str,
+        tag: str,
+        *,
+        primary: bool,
+    ) -> None:
+        width = 132
+        height = 34
+        fill = PRIMARY if primary else self._surface()
+        outline = PRIMARY if primary else self._border()
+        fg = SURFACE if primary else self._text_primary()
+        self._rounded_rectangle(
+            cx - width / 2,
+            cy - height / 2,
+            cx + width / 2,
+            cy + height / 2,
+            8,
+            fill=fill,
+            outline=outline,
+            tags=("graph", "empty-state", tag),
+        )
+        self.create_text(
+            cx,
+            cy,
+            text=text,
+            fill=fg,
+            font=(self.font_family, 10, "bold" if primary else "normal"),
+            tags=("graph", "empty-state", tag),
+        )
+        if tag == "empty-new-node" and self.on_create_node is not None:
+            self.tag_bind(tag, "<Button-1>", lambda _event: self.on_create_node())
+            self.tag_bind(tag, "<Enter>", lambda _event: self.configure(cursor="hand2"))
+            self.tag_bind(tag, "<Leave>", lambda _event: self.configure(cursor=""))
+        if tag == "empty-generate" and self.on_generate_flow is not None:
+            self.tag_bind(tag, "<Button-1>", lambda _event: self.on_generate_flow())
+            self.tag_bind(tag, "<Enter>", lambda _event: self.configure(cursor="hand2"))
+            self.tag_bind(tag, "<Leave>", lambda _event: self.configure(cursor=""))
 
     def _draw_edge_mode_hint(self) -> None:
         if not self._edge_mode:
@@ -365,16 +605,16 @@ class GraphCanvas(tk.Canvas):
             x + width / 2,
             y + 15,
             14,
-            fill="#111827",
-            outline="",
+            fill=self._surface(),
+            outline=self._border(),
             tags=("graph", "edge-mode-hint"),
         )
         self.create_text(
             x,
             y,
             text=f"{message}   ·   Esc to cancel",
-            fill="#FFFFFF",
-            font=(self.font_family, 9, "bold"),
+            fill=self._text_primary(),
+            font=(self.font_family, 9),
             tags=("graph", "edge-mode-hint"),
         )
 
@@ -384,7 +624,7 @@ class GraphCanvas(tk.Canvas):
         fill, base_outline = self._node_palette(node)
         recommended_id = self._recommended_node_id()
         current_id = self.context.graph.workspace.current_node_id
-        emphasized = node.id == recommended_id or (
+        emphasized = node.id == recommended_id or node.id in self._spotlight_node_ids or (
             self.context.graph.workspace.focus_mode and node.id == current_id
         )
         selected = node.id == self._selected_node_id
@@ -394,15 +634,15 @@ class GraphCanvas(tk.Canvas):
         y1 += inset
         x2 -= inset
         y2 -= inset
-        outline = "#2563EB" if emphasized else "#93C5FD" if selected else base_outline
-        width = 2 if emphasized else 1.5 if selected else 1
+        outline = PRIMARY if emphasized or selected else base_outline
+        width = 2 if emphasized or selected else 1
         shadow = self._rounded_rectangle(
             x1 + self._scale(1),
             y1 + self._scale(3),
             x2 + self._scale(1),
             y2 + self._scale(3),
             self._scale(18),
-            fill="#E5E7EB",
+            fill="#0B1220" if self._dark_mode else "#E2E8F0",
             outline="",
             tags=("graph", "node", f"node:{node.id}"),
         )
@@ -413,7 +653,7 @@ class GraphCanvas(tk.Canvas):
                 x2 + self._scale(3 + pulse),
                 y2 + self._scale(3 + pulse),
                 self._scale(22),
-                fill="#D1FAE5" if self._is_completion_source(node.id) else "#DBEAFE",
+                fill="#064E3B" if self._dark_mode and self._is_completion_source(node.id) else "#1E3A5F" if self._dark_mode else SUCCESS_SOFT if self._is_completion_source(node.id) else PRIMARY_SOFT,
                 outline="",
                 tags=("graph", "node", f"node:{node.id}"),
             )
@@ -426,19 +666,39 @@ class GraphCanvas(tk.Canvas):
             x2,
             y2,
             self._scale(18),
-            fill=fill,
+            fill=("#1E3A5F" if self._dark_mode else PRIMARY_TINT) if selected or emphasized else fill,
             outline=outline,
             width=width,
             tags=("graph", "node", f"node:{node.id}"),
         )
-        type_text = self.create_text(
+        accent = self._node_type_accent(node.type)
+        stripe = self._rounded_rectangle(
+            x1,
+            y1 + self._scale(12),
+            x1 + self._scale(4),
+            y2 - self._scale(12),
+            self._scale(3),
+            fill=accent,
+            outline="",
+            tags=("graph", "node", f"node:{node.id}"),
+        )
+        dot = self.create_oval(
             x1 + self._scale(14),
+            y1 + self._scale(15),
+            x1 + self._scale(24),
+            y1 + self._scale(25),
+            fill=accent,
+            outline="",
+            tags=("graph", "node", f"node:{node.id}"),
+        )
+        type_text = self.create_text(
+            x1 + self._scale(32),
             y1 + self._scale(20),
             text=self._fit_text_to_width(
                 node.type.value.upper(), self._type_font, self._scale(92)
             ),
             anchor="w",
-            fill="#6B7280",
+            fill=self._text_muted(),
             font=self._type_font,
             tags=("graph", "node", f"node:{node.id}"),
         )
@@ -447,7 +707,7 @@ class GraphCanvas(tk.Canvas):
             y1 + self._scale(20),
             text=f"P{node.priority}  \u00b7  {node.estimated_minutes}m",
             anchor="e",
-            fill="#6B7280",
+            fill=self._text_muted(),
             font=self._meta_font,
             tags=("graph", "node", f"node:{node.id}"),
         )
@@ -458,7 +718,7 @@ class GraphCanvas(tk.Canvas):
                 node.title, self._title_font, self._scale(180)
             ),
             anchor="w",
-            fill="#111827",
+            fill=self._text_primary(),
             font=self._title_font,
             tags=("graph", "node", f"node:{node.id}"),
         )
@@ -487,7 +747,7 @@ class GraphCanvas(tk.Canvas):
             font=self._badge_font,
             tags=("graph", "node", f"node:{node.id}"),
         )
-        items = [shadow, body, type_text, top_meta, title, badge, meta]
+        items = [shadow, body, stripe, dot, type_text, top_meta, title, badge, meta]
         if node.id == recommended_id:
             next_width = self._scale(40)
             next_badge = self._rounded_rectangle(
@@ -496,7 +756,7 @@ class GraphCanvas(tk.Canvas):
                 x2 - self._scale(14),
                 y1 + self._scale(91),
                 self._scale(10),
-                fill="#DBEAFE",
+                fill="#1E3A5F" if self._dark_mode else PRIMARY_SOFT,
                 outline="",
                 tags=("graph", "node", f"node:{node.id}"),
             )
@@ -505,7 +765,7 @@ class GraphCanvas(tk.Canvas):
                 y1 + self._scale(80),
                 text="NEXT",
                 anchor="center",
-                fill="#1D4ED8",
+                fill=PRIMARY,
                 font=self._badge_font,
                 tags=("graph", "node", f"node:{node.id}"),
             )
@@ -535,12 +795,14 @@ class GraphCanvas(tk.Canvas):
         path = self.compute_edge_path(source, target, edge.type)
         color, dash = self._edge_style(edge)
         state = self._edge_visual_state(edge)
+        if source.status == NodeStatus.DONE:
+            color = SUCCESS
         if state in {"selected-path", "completion-flow"}:
-            color = "#2563EB"
+            color = PRIMARY
         elif state == "hover-related":
-            color = "#94A3B8"
+            color = BORDER_STRONG
         elif self._hovered_node_id is not None:
-            color = "#E2E8F0"
+            color = BORDER
         width = 2 if state != "default" else 1.2
 
         line = self.create_line(
@@ -625,6 +887,9 @@ class GraphCanvas(tk.Canvas):
     def _on_release(self, _event: tk.Event) -> None:
         self._drag_node_id = None
         self._panning = False
+
+    def _on_configure(self, _event: tk.Event) -> None:
+        self.redraw()
 
     def _on_pan_start(self, event: tk.Event) -> None:
         self._panning = True
@@ -1311,14 +1576,14 @@ class GraphCanvas(tk.Canvas):
     @staticmethod
     def _edge_style(edge: Edge) -> tuple[str, tuple[int, ...] | None]:
         if edge.type == EdgeType.DEPENDENCY:
-            return "#CBD5E1", None
+            return BORDER_STRONG, None
         if edge.type == EdgeType.ROUTINE:
-            return "#CBD5E1", (10, 10)
+            return BORDER_STRONG, (8, 8)
         if edge.type == EdgeType.RECOMMENDATION:
-            return "#CBD5E1", (10, 10)
+            return BORDER_STRONG, (8, 8)
         if edge.type == EdgeType.TRIGGER:
-            return "#CBD5E1", (10, 10)
-        return "#CBD5E1", None
+            return BORDER_STRONG, (8, 8)
+        return BORDER_STRONG, None
 
     @staticmethod
     def _fit_text(text: str, max_chars: int) -> str:
@@ -1342,17 +1607,22 @@ class GraphCanvas(tk.Canvas):
             return cls._fit_text(edge.label, 28)
         return edge.type.value
 
+    def _node_palette(self, node: Node) -> tuple[str, str]:
+        if node.status == NodeStatus.BLOCKED:
+            return self._surface(), WARNING
+        return self._surface(), self._border()
+
     @staticmethod
-    def _node_palette(node: Node) -> tuple[str, str]:
-        if node.type == NodeType.RESOURCE:
-            return "#ECFDF5", "#A7F3D0"
-        if node.type == NodeType.REWARD:
-            return "#FDF2F8", "#F9A8D4"
-        if node.type == NodeType.CHECKPOINT:
-            return "#EEF2FF", "#C7D2FE"
-        if node.type == NodeType.ROUTINE:
-            return "#FFFBEB", "#FDE68A"
-        return "#ECFDF5", "#A7F3D0"
+    def _node_type_accent(node_type: NodeType) -> str:
+        if node_type == NodeType.RESOURCE:
+            return SUCCESS
+        if node_type == NodeType.REWARD:
+            return PINK
+        if node_type == NodeType.CHECKPOINT:
+            return PURPLE
+        if node_type == NodeType.ROUTINE:
+            return WARNING
+        return PRIMARY
 
     def _status_text(self, node: Node) -> str:
         parts = [node.status.value.capitalize()]
@@ -1365,14 +1635,14 @@ class GraphCanvas(tk.Canvas):
     @staticmethod
     def _status_palette(status: NodeStatus) -> tuple[str, str]:
         if status == NodeStatus.DONE:
-            return "#D1FAE5", "#047857"
+            return SUCCESS_SOFT, SUCCESS
         if status == NodeStatus.DOING:
-            return "#DBEAFE", "#1D4ED8"
+            return PRIMARY_SOFT, PRIMARY
         if status == NodeStatus.BLOCKED:
-            return "#FEE2E2", "#DC2626"
+            return DANGER_SOFT, DANGER
         if status == NodeStatus.PAUSED:
-            return "#F3F4F6", "#6B7280"
-        return "#E5E7EB", "#4B5563"
+            return CARD_BG_HOVER, TEXT_MUTED
+        return CARD_BG_HOVER, TEXT_SECONDARY
 
     def _routine_state_label(self, node: Node) -> str:
         state = self.context.routine_service.routine_state(node)

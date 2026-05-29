@@ -6,12 +6,13 @@ from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from PIL import Image, ImageTk
 
 from petflow.agent.agent_client import AgentClient
 from petflow.agent.agent_executor import AgentExecutor
 from petflow.agent.prompts import PromptBuilder
 from petflow.app.app_context import AppContext
-from petflow.config import DEFAULT_GRAPH_PATH, AppConfig
+from petflow.config import ASSETS_DIR, DEFAULT_GRAPH_PATH, AppConfig
 from petflow.domain.enums import NodeStatus, NodeType, PetStateType
 from petflow.domain.exceptions import PetFlowError
 from petflow.system.clipboard_watcher import ClipboardWatcher
@@ -20,9 +21,28 @@ from petflow.ui.agent_dialog import AgentDialog
 from petflow.ui.agenda_panel import AgendaPanel
 from petflow.ui.inspector_panel import InspectorPanel
 from petflow.ui.graph_canvas import GraphCanvas
+from petflow.ui.icon_button import IconButton
 from petflow.ui.fonts import apply_ui_font_defaults
 from petflow.ui.pet_assistant_panel import PetAssistantPanel
 from petflow.ui.settings_dialog import SettingsDialog
+from petflow.ui.theme import (
+    COLOR_BORDER,
+    COLOR_MUTED,
+    COLOR_PANEL,
+    COLOR_PRIMARY,
+    COLOR_TEXT,
+    DARK_APP_BG,
+    DARK_BORDER,
+    DARK_BORDER_STRONG,
+    DARK_MUTED,
+    DARK_PANEL,
+    DARK_PANEL_SOFT,
+    DARK_PRIMARY,
+    DARK_PRIMARY_SOFT,
+    DARK_SURFACE,
+    DARK_TEXT,
+    DARK_TEXT_SECONDARY,
+)
 
 
 class MainWindow:
@@ -43,20 +63,32 @@ class MainWindow:
         self.right_body: tk.Frame | None = None
         self.edit_tab_button: tk.Button | None = None
         self.companion_tab_button: tk.Button | None = None
-        self.edit_mode_button: tk.Button | None = None
+        self.edit_mode_button: IconButton | None = None
+        self.agenda_toggle_button: IconButton | None = None
+        self.right_toggle_button: IconButton | None = None
+        self.focus_mode_button: IconButton | None = None
+        self.theme_mode_button: IconButton | None = None
+        self.focus_chip: tk.Frame | None = None
+        self.focus_chip_icon: tk.Label | None = None
+        self.focus_time_label: tk.Label | None = None
+        self.focus_title_label: tk.Label | None = None
+        self.focus_time_var: tk.StringVar
+        self.focus_title_var: tk.StringVar
+        self.logo_image: ImageTk.PhotoImage | None = None
         self.workspace_panes: tk.PanedWindow | None = None
         self._agenda_visible = True
         self._pet_panel_visible = True
         self._edit_mode = False
+        self._dark_mode = self.context.graph.workspace.theme == "dark"
         self._right_tab = "companion"
-        self.more_menu: tk.Menu | None = None
-        self.more_button: tk.Button | None = None
         self._pet_agent_busy = False
         self._pet_agent_results: Queue[
             tuple[str, dict[str, object] | None, PetFlowError | None]
         ] = Queue()
 
         self.root = tk.Tk()
+        self.focus_time_var = tk.StringVar(value="00:00")
+        self.focus_title_var = tk.StringVar(value="Choose a task to focus")
         self.ui_font_family = apply_ui_font_defaults(self.root)
         self.root.title(self.config.app_name)
         self.root.geometry(f"{self.config.window_width}x{self.config.window_height}")
@@ -66,9 +98,6 @@ class MainWindow:
 
     def _build_ui(self) -> None:
         self.root.configure(bg="#F6F8FB")
-        style = ttk.Style(self.root)
-        style.configure("Topbar.TCheckbutton", background="#FFFFFF", padding=(8, 8))
-
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
 
@@ -84,80 +113,93 @@ class MainWindow:
         toolbar.grid_propagate(False)
 
         left = tk.Frame(toolbar, bg="#FFFFFF")
-        left.pack(side="left", padx=(22, 0), pady=12)
+        left.pack(side="left", padx=(18, 0), pady=12)
+        self.logo_image = self._load_logo()
+        if self.logo_image is not None:
+            tk.Label(left, image=self.logo_image, bg="#FFFFFF").pack(
+                side="left", padx=(0, 8)
+            )
         tk.Label(
             left,
             text="PetFlow",
             bg="#FFFFFF",
             fg="#111827",
             font=(self.ui_font_family, 18, "bold"),
-        ).pack(side="left", padx=(0, 24))
-        self._button(left, "New Node", self.create_node, primary=True).pack(side="left")
-        self._button(left, "New Edge", self.begin_edge_mode).pack(
-            side="left", padx=(8, 0)
-        )
-        self.edit_mode_button = self._button(left, "Edit Mode: Off", self.toggle_edit_mode)
-        self.edit_mode_button.pack(side="left", padx=(8, 0))
-        self._style_edit_mode_button()
+        ).pack(side="left", padx=(0, 18))
 
-        center = tk.Frame(toolbar, bg="#FFFFFF")
-        center.pack(side="left", padx=(34, 0), pady=12)
-        for label, command in (
-            ("Save", self.save_graph),
-            ("Load", self.load_graph),
-            ("Sample", self.load_sample_graph),
-            ("Recommend", self.recommend_next),
-            ("Agent", self.open_agent_dialog),
+        tools = tk.Frame(toolbar, bg="#FFFFFF")
+        tools.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=12)
+
+        self._icon_button(tools, "node-add", "New node", self.create_node, primary=True).pack(
+            side="left", padx=(0, 4)
+        )
+        self._icon_button(tools, "edge-add", "New edge", self.begin_edge_mode).pack(
+            side="left", padx=(0, 4)
+        )
+        self._icon_button(tools, "complete", "Complete selected checkpoint", self.mark_selected_done).pack(
+            side="left", padx=(0, 4)
+        )
+        self.edit_mode_button = self._icon_button(
+            tools, "edit", "Edit mode", self.toggle_edit_mode
+        )
+        self.edit_mode_button.pack(side="left", padx=(0, 10))
+
+        self._separator(tools).pack(side="left", fill="y", padx=(0, 10), pady=5)
+        for icon, tooltip, command in (
+            ("save", "Save graph", self.save_graph),
+            ("load", "Load graph", self.load_graph),
+            ("sample", "Load sample graph", self.load_sample_graph),
+            ("recommend", "Recommend next task", self.recommend_next),
+            ("agent", "Generate Mission Map", self.open_agent_dialog),
         ):
-            self._button(center, label, command).pack(side="left", padx=(0, 4))
+            self._icon_button(tools, icon, tooltip, command).pack(side="left", padx=(0, 4))
 
-        self.more_menu = tk.Menu(self.root, tearoff=False)
-        self.more_menu.add_command(label="Arrange Nodes", command=self.layout_graph)
-        self.more_menu.add_command(label="Fit View    Ctrl+0", command=self.fit_view)
-        self.more_menu.add_command(label="Reset View", command=self.reset_view)
-        self.more_menu.add_separator()
-        self.more_menu.add_command(
-            label="Toggle Schedule Panel", command=self.toggle_agenda_panel
+        self._separator(tools).pack(side="left", fill="y", padx=(6, 10), pady=5)
+        for icon, tooltip, command in (
+            ("arrange", "Arrange nodes", self.layout_graph),
+            ("fit", "Fit view (Ctrl+0)", self.fit_view),
+            ("reset", "Reset view", self.reset_view),
+        ):
+            self._icon_button(tools, icon, tooltip, command).pack(side="left", padx=(0, 4))
+
+        self._separator(tools).pack(side="left", fill="y", padx=(6, 10), pady=5)
+        self.agenda_toggle_button = self._icon_button(
+            tools, "agenda", "Hide schedule panel", self.toggle_agenda_panel, selected=True
         )
-        self.more_menu.add_command(
-            label="Toggle Right Panel", command=self.toggle_pet_panel
+        self.agenda_toggle_button.pack(side="left", padx=(0, 4))
+        self.right_toggle_button = self._icon_button(
+            tools, "right-panel", "Hide right panel", self.toggle_pet_panel, selected=True
         )
-        self.more_menu.add_separator()
-        self.more_menu.add_command(
-            label="Capture Clipboard", command=self.capture_clipboard
-        )
-        self.more_menu.add_command(label="Review", command=self.show_review)
-        self.more_menu.add_command(
-            label="Settings / API Key...", command=self.open_settings_dialog
-        )
+        self.right_toggle_button.pack(side="left", padx=(0, 10))
+
+        for icon, tooltip, command in (
+            ("clipboard", "Capture clipboard", self.capture_clipboard),
+            ("review", "Review graph", self.show_review),
+            ("settings", "Settings and API key", self.open_settings_dialog),
+        ):
+            self._icon_button(tools, icon, tooltip, command).pack(side="left", padx=(0, 4))
+
         self.focus_mode_var = tk.BooleanVar(
             value=self.context.graph.workspace.focus_mode
         )
         right = tk.Frame(toolbar, bg="#FFFFFF")
-        right.pack(side="right", padx=(0, 22), pady=12)
-        ttk.Checkbutton(
+        right.pack(side="right", padx=(0, 18), pady=12)
+        self.focus_mode_button = self._icon_button(
             right,
-            text="Focus Mode",
-            variable=self.focus_mode_var,
-            command=self.toggle_focus_mode,
-            style="Topbar.TCheckbutton",
-        ).pack(side="left", padx=(0, 12))
-        self.more_button = tk.Button(
-            right,
-            text="More",
-            command=self._show_more_menu,
-            bg="#FFFFFF",
-            fg="#374151",
-            activebackground="#F3F4F6",
-            activeforeground="#111827",
-            relief="flat",
-            borderwidth=0,
-            padx=12,
-            pady=9,
-            font=(self.ui_font_family, 10),
-            cursor="hand2",
+            "focus",
+            "Start focus mode",
+            self.toggle_focus_mode,
+            selected=self.context.graph.workspace.focus_mode,
         )
-        self.more_button.pack(side="left")
+        self.focus_mode_button.pack(side="left")
+        self.theme_mode_button = self._icon_button(
+            right,
+            "theme",
+            "Switch to light mode" if self._dark_mode else "Switch to dark mode",
+            self.toggle_theme_mode,
+            selected=self._dark_mode,
+        )
+        self.theme_mode_button.pack(side="left", padx=(6, 0))
 
         banner = tk.Frame(
             self.root,
@@ -168,24 +210,69 @@ class MainWindow:
             pady=10,
         )
         banner.grid(row=1, column=0, sticky="ew")
-        self.recommendation_var = tk.StringVar(value="Suggested next: No available node")
-        self.recommendation_detail_var = tk.StringVar(value="Create or load tasks to begin.")
+        banner.columnconfigure(0, weight=1)
+        self.recommendation_var = tk.StringVar(value="Suggested next checkpoint: No checkpoint available")
+        self.recommendation_detail_var = tk.StringVar(value="Load demo or generate a mission map to begin.")
         tk.Label(
             banner,
             textvariable=self.recommendation_var,
             bg="#EFF6FF",
             fg="#111827",
             anchor="w",
+            justify="left",
             font=(self.ui_font_family, 11, "bold"),
-        ).pack(anchor="w")
+        ).grid(row=0, column=0, sticky="ew")
         tk.Label(
             banner,
             textvariable=self.recommendation_detail_var,
             bg="#EFF6FF",
             fg="#6B7280",
             anchor="w",
+            justify="left",
             font=(self.ui_font_family, 9),
-        ).pack(anchor="w", pady=(3, 0))
+        ).grid(row=1, column=0, sticky="ew", pady=(3, 0))
+        self.focus_chip = tk.Frame(
+            banner,
+            bg=COLOR_PANEL,
+            padx=12,
+            pady=8,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+        )
+        focus_head = tk.Frame(self.focus_chip, bg=COLOR_PANEL)
+        focus_head.pack(anchor="w", fill="x")
+        self.focus_chip_icon = tk.Label(
+            focus_head,
+            text="●",
+            bg=COLOR_PANEL,
+            fg=COLOR_PRIMARY,
+            font=(self.ui_font_family, 10, "bold"),
+        )
+        self.focus_chip_icon.pack(side="left", padx=(0, 6))
+        tk.Label(
+            focus_head,
+            text="Focus",
+            bg=COLOR_PANEL,
+            fg=COLOR_PRIMARY,
+            font=(self.ui_font_family, 9, "bold"),
+        ).pack(side="left")
+        self.focus_time_label = tk.Label(
+            self.focus_chip,
+            textvariable=self.focus_time_var,
+            bg=COLOR_PANEL,
+            fg=COLOR_TEXT,
+            font=(self.ui_font_family, 18, "bold"),
+        )
+        self.focus_time_label.pack(anchor="w", pady=(2, 0))
+        self.focus_title_label = tk.Label(
+            self.focus_chip,
+            textvariable=self.focus_title_var,
+            bg=COLOR_PANEL,
+            fg=COLOR_MUTED,
+            font=(self.ui_font_family, 9, "bold"),
+        )
+        self.focus_title_label.pack(anchor="w")
+        self._refresh_focus_chip()
 
         workspace = tk.Frame(self.root, bg="#F6F8FB")
         workspace.grid(row=2, column=0, sticky="nsew")
@@ -226,6 +313,8 @@ class MainWindow:
             on_selection_changed=self._on_canvas_selection_changed,
             on_focus_node_title=self._focus_inspector_title,
             on_status_hint=self._set_status,
+            on_create_node=self.create_node,
+            on_generate_flow=self.open_agent_dialog,
         )
 
         self._build_right_panel()
@@ -250,41 +339,41 @@ class MainWindow:
             highlightthickness=1,
             highlightbackground="#E5E7EB",
         ).grid(row=3, column=0, sticky="ew")
+        self._style_panel_buttons()
+        self._style_focus_button()
+        self._apply_theme()
         self._refresh_status_bar()
 
-    def _button(
+    def _load_logo(self) -> ImageTk.PhotoImage | None:
+        path = ASSETS_DIR / "brand" / "petflow_logo.png"
+        if not path.exists():
+            return None
+        try:
+            image = Image.open(path).convert("RGBA").resize((30, 30))
+            return ImageTk.PhotoImage(image)
+        except OSError:
+            return None
+
+    def _icon_button(
         self,
         master: tk.Misc,
-        text: str,
+        icon: str,
+        tooltip: str,
         command: Callable[[], None],
         primary: bool = False,
-    ) -> tk.Button:
-        return tk.Button(
+        selected: bool = False,
+    ) -> IconButton:
+        return IconButton(
             master,
-            text=text,
+            icon,
+            tooltip,
             command=command,
-            bg="#2563EB" if primary else "#FFFFFF",
-            fg="#FFFFFF" if primary else "#374151",
-            activebackground="#1D4ED8" if primary else "#F3F4F6",
-            activeforeground="#FFFFFF" if primary else "#111827",
-            relief="flat",
-            borderwidth=0,
-            padx=15 if primary else 12,
-            pady=9,
-            cursor="hand2",
-            font=(self.ui_font_family, 10, "bold" if primary else "normal"),
+            primary=primary,
+            selected=selected,
         )
 
-    def _show_more_menu(self) -> None:
-        if self.more_menu is None or self.more_button is None:
-            return
-        try:
-            self.more_menu.tk_popup(
-                self.more_button.winfo_rootx(),
-                self.more_button.winfo_rooty() + self.more_button.winfo_height(),
-            )
-        finally:
-            self.more_menu.grab_release()
+    def _separator(self, master: tk.Misc) -> tk.Frame:
+        return tk.Frame(master, width=1, bg="#E5E7EB")
 
     def _build_right_panel(self) -> None:
         if self.workspace_panes is None:
@@ -372,11 +461,17 @@ class MainWindow:
             if button is None:
                 continue
             selected = name == self._right_tab
+            selected_bg = "#1E3A5F" if self._dark_mode else "#DBEAFE"
+            idle_bg = "#111B21" if self._dark_mode else "#F8FAFC"
+            hover_bg = "#1F2C34" if self._dark_mode else "#F1F5F9"
+            selected_fg = "#93C5FD" if self._dark_mode else "#2563EB"
+            idle_fg = "#8696A0" if self._dark_mode else "#64748B"
+            active_fg = "#E9EDEF" if self._dark_mode else "#111827"
             button.configure(
-                bg="#DBEAFE" if selected else "#F8FAFC",
-                fg="#2563EB" if selected else "#64748B",
-                activebackground="#DBEAFE" if selected else "#F1F5F9",
-                activeforeground="#2563EB" if selected else "#111827",
+                bg=selected_bg if selected else idle_bg,
+                fg=selected_fg if selected else idle_fg,
+                activebackground=selected_bg if selected else hover_bg,
+                activeforeground=selected_fg if selected else active_fg,
             )
 
     def toggle_edit_mode(self) -> None:
@@ -414,22 +509,205 @@ class MainWindow:
         if self.edit_mode_button is None:
             return
         active = self._edit_mode
-        self.edit_mode_button.configure(
-            text="Edit Mode: On" if active else "Edit Mode: Off",
-            bg="#DBEAFE" if active else "#FFFFFF",
-            fg="#2563EB" if active else "#374151",
-            activebackground="#BFDBFE" if active else "#F3F4F6",
-            activeforeground="#1D4ED8" if active else "#111827",
+        self.edit_mode_button.set_selected(active)
+        self.edit_mode_button.set_tooltip(
+            "Leave edit mode" if active else "Edit mode"
         )
+        self.canvas.set_visual_mode(edit_grid=active, dark_mode=self._dark_mode)
+
+    def _style_panel_buttons(self) -> None:
+        if self.agenda_toggle_button is not None:
+            self.agenda_toggle_button.set_selected(self._agenda_visible)
+            self.agenda_toggle_button.set_tooltip(
+                "Hide schedule panel" if self._agenda_visible else "Show schedule panel"
+            )
+        if self.right_toggle_button is not None:
+            self.right_toggle_button.set_selected(self._pet_panel_visible)
+            self.right_toggle_button.set_tooltip(
+                "Hide right panel" if self._pet_panel_visible else "Show right panel"
+            )
+
+    def _style_focus_button(self) -> None:
+        if self.focus_mode_button is None:
+            return
+        enabled = bool(self.context.graph.workspace.focus_mode)
+        self.focus_mode_button.set_selected(enabled)
+        self.focus_mode_button.set_tooltip(
+            "Stop focus mode" if enabled else "Start focus mode"
+        )
+
+    def toggle_theme_mode(self) -> None:
+        self._dark_mode = not self._dark_mode
+        self.context.graph.workspace.theme = "dark" if self._dark_mode else "light"
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        bg = DARK_APP_BG if self._dark_mode else "#F6F8FB"
+        panel = DARK_PANEL if self._dark_mode else "#FFFFFF"
+        soft = DARK_PANEL_SOFT if self._dark_mode else "#EFF6FF"
+        border = DARK_BORDER if self._dark_mode else "#E5E7EB"
+        text = DARK_TEXT if self._dark_mode else "#111827"
+        muted = DARK_MUTED if self._dark_mode else "#6B7280"
+        self.root.configure(bg=bg)
+        self._apply_ttk_theme(panel=panel, soft=soft, border=border, text=text, muted=muted)
+        self._apply_widget_theme(self.root, panel=panel, soft=soft, border=border, text=text, muted=muted)
+        if self.theme_mode_button is not None:
+            self.theme_mode_button.set_selected(self._dark_mode)
+            self.theme_mode_button.set_tooltip(
+                "Switch to light mode" if self._dark_mode else "Switch to dark mode"
+            )
+        self._style_right_tabs()
+        self._style_panel_buttons()
+        self._style_focus_button()
+        self.canvas.set_visual_mode(edit_grid=self._edit_mode, dark_mode=self._dark_mode)
+
+    def _apply_ttk_theme(
+        self,
+        *,
+        panel: str,
+        soft: str,
+        border: str,
+        text: str,
+        muted: str,
+    ) -> None:
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure(".", background=panel, foreground=text, fieldbackground=soft)
+        style.configure("TFrame", background=panel, bordercolor=border)
+        style.configure("TLabel", background=panel, foreground=text)
+        style.configure(
+            "TEntry",
+            fieldbackground=soft,
+            foreground=text,
+            bordercolor=border,
+            lightcolor=border,
+            darkcolor=border,
+            insertcolor=text,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=soft,
+            background=soft,
+            foreground=text,
+            arrowcolor=muted,
+            bordercolor=border,
+            lightcolor=border,
+            darkcolor=border,
+        )
+        style.configure(
+            "TSpinbox",
+            fieldbackground=soft,
+            background=soft,
+            foreground=text,
+            arrowcolor=muted,
+            bordercolor=border,
+        )
+        style.configure(
+            "TButton",
+            background=soft,
+            foreground=text,
+            bordercolor=border,
+            lightcolor=border,
+            darkcolor=border,
+            focusthickness=0,
+        )
+        style.map(
+            "TButton",
+            background=[("active", DARK_BORDER if self._dark_mode else "#F1F5F9")],
+            foreground=[("active", text)],
+        )
+        style.configure("TLabelframe", background=panel, bordercolor=border)
+        style.configure("TLabelframe.Label", background=panel, foreground=muted)
+        style.configure("TCheckbutton", background=panel, foreground=text)
+
+    def _apply_widget_theme(
+        self,
+        widget: tk.Misc,
+        *,
+        panel: str,
+        soft: str,
+        border: str,
+        text: str,
+        muted: str,
+    ) -> None:
+        cls = widget.winfo_class()
+        try:
+            if isinstance(widget, IconButton):
+                widget.set_dark_mode(self._dark_mode)
+            elif cls in {"Frame", "TFrame"}:
+                widget.configure(bg=panel)
+            elif cls == "Label":
+                fg = str(widget.cget("fg")).lower()
+                widget.configure(
+                    bg=panel,
+                    fg=muted if fg in {"#6b7280", "#64748b", "#94a3b8", "#475569", "#8696a0"} else text,
+                )
+            elif cls == "Button":
+                widget.configure(
+                    bg=soft,
+                    fg=text,
+                    activebackground=DARK_BORDER if self._dark_mode else "#F1F5F9",
+                    activeforeground=text,
+                    highlightbackground=border,
+                    highlightcolor=border,
+                )
+            elif cls in {"Text", "Entry", "Spinbox", "Listbox"}:
+                widget.configure(
+                    bg=soft,
+                    fg=text,
+                    insertbackground=text,
+                    highlightbackground=border,
+                    highlightcolor=border,
+                    selectbackground=DARK_PRIMARY_SOFT if self._dark_mode else "#DBEAFE",
+                    selectforeground=text,
+                )
+            elif cls in {"Checkbutton", "Radiobutton"}:
+                widget.configure(
+                    bg=panel,
+                    fg=text,
+                    activebackground=panel,
+                    activeforeground=text,
+                    selectcolor=soft,
+                    highlightbackground=border,
+                )
+            elif cls == "Scrollbar":
+                widget.configure(
+                    bg=soft,
+                    activebackground=DARK_BORDER_STRONG if self._dark_mode else "#CBD5E1",
+                    troughcolor=panel,
+                    highlightbackground=border,
+                )
+            elif cls == "Panedwindow":
+                widget.configure(bg=border)
+            elif cls == "Canvas" and widget is not self.canvas:
+                widget.configure(bg=panel, highlightbackground=border)
+            for option, value in (
+                ("background", panel),
+                ("highlightbackground", border),
+                ("highlightcolor", border),
+            ):
+                try:
+                    widget.configure(**{option: value})
+                except tk.TclError:
+                    pass
+        except tk.TclError:
+            pass
+        for child in widget.winfo_children():
+            self._apply_widget_theme(child, panel=panel, soft=soft, border=border, text=text, muted=muted)
 
     def _ensure_right_panel_visible(self) -> None:
         if not self._pet_panel_visible:
             self._pet_panel_visible = True
             self._rebuild_workspace_panes()
+            self._style_panel_buttons()
 
     def toggle_agenda_panel(self) -> None:
         self._agenda_visible = not self._agenda_visible
         self._rebuild_workspace_panes()
+        self._style_panel_buttons()
 
     def toggle_pet_panel(self) -> None:
         self._pet_panel_visible = not self._pet_panel_visible
@@ -439,6 +717,7 @@ class MainWindow:
                 self._show_right_tab("edit")
             else:
                 self._show_right_tab("companion")
+        self._style_panel_buttons()
 
     def _rebuild_workspace_panes(self) -> None:
         if (
@@ -478,6 +757,7 @@ class MainWindow:
             self._set_edit_mode(True)
             self.canvas.select_node(node.id)
             self.canvas.redraw()
+            self.canvas.spotlight_nodes([node.id])
             self._refresh_agenda()
             self._update_recommendation_label()
             if self.inspector_panel is not None:
@@ -522,11 +802,18 @@ class MainWindow:
         try:
             graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
             self.context = AppContext.create(graph)
+            self._dark_mode = self.context.graph.workspace.theme == "dark"
             if self.inspector_panel is not None:
                 self.inspector_panel.set_context(self.context)
             self.canvas.set_context(self.context)
             self._refresh_agenda(preserve_scroll=False)
             self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
+            self.focus_started_at = (
+                datetime.now() if self.context.graph.workspace.focus_mode else None
+            )
+            self._style_focus_button()
+            self._apply_theme()
+            self._refresh_focus_chip()
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
             self._set_status(f"Loaded: {DEFAULT_GRAPH_PATH.name}")
@@ -539,18 +826,25 @@ class MainWindow:
             sample_path = DEFAULT_GRAPH_PATH.parent / "sample_graph.json"
             graph = self.context.storage_service.load_graph(sample_path)
             self.context = AppContext.create(graph)
-            self.context.graph_layout_service.apply_grid_layout(
-                self.context.graph_service
-            )
+            self._dark_mode = self.context.graph.workspace.theme == "dark"
             if self.inspector_panel is not None:
                 self.inspector_panel.set_context(self.context)
             self.canvas.set_context(self.context)
+            if self.context.graph.workspace.current_node_id:
+                self.canvas.select_node(self.context.graph.workspace.current_node_id)
             self._refresh_agenda(preserve_scroll=False)
             self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
+            self.focus_started_at = (
+                datetime.now() if self.context.graph.workspace.focus_mode else None
+            )
+            self._style_focus_button()
+            self._apply_theme()
+            self._refresh_focus_chip()
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
             self._set_status("Loaded sample graph")
             self.root.after_idle(self.fit_view)
+            self.root.after(120, self.canvas.play_reveal)
         except PetFlowError as exc:
             messagebox.showerror("Sample load failed", str(exc), parent=self.root)
 
@@ -580,9 +874,9 @@ class MainWindow:
     def recommend_next(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
-            self.recommendation_var.set("Suggested next: No available node")
-            self.recommendation_detail_var.set("Create or load tasks to begin.")
-            messagebox.showinfo("Recommend Next", "No available node.", parent=self.root)
+            self.recommendation_var.set("Suggested next checkpoint: No checkpoint available")
+            self.recommendation_detail_var.set("Load demo or generate a mission map to begin.")
+            messagebox.showinfo("Recommend Next", "No checkpoint available.", parent=self.root)
             return
         reason = self.context.recommendation_engine.recommend_reason(
             self.context.graph,
@@ -593,17 +887,18 @@ class MainWindow:
         self.canvas.redraw()
         self._render_pet()
         self._refresh_agenda()
-        self.recommendation_var.set(f"Suggested next: {node.title}")
+        self.recommendation_var.set(f"Suggested next checkpoint: {node.title}")
         self.recommendation_detail_var.set(reason.replace(", ", "  \u00b7  "))
         self._set_status(f"Recommended: {node.title}")
         self.root.after_idle(self.fit_view)
         messagebox.showinfo(
             "Recommend Next",
-            f"Next: {node.title}\nReason: {reason}\nStatus: {node.status.value}\nPriority: P{node.priority}",
+            f"Next checkpoint: {node.title}\nReason: {reason}\nStatus: {node.status.value}\nPriority: P{node.priority}",
             parent=self.root,
         )
 
     def open_agent_dialog(self, node_id: str | None = None) -> None:
+        existing_node_count = len(self.context.graph.nodes)
         dialog = AgentDialog(self.root, self.context, node_id=node_id)
         self.root.wait_window(dialog)
         if dialog.result is None:
@@ -615,10 +910,15 @@ class MainWindow:
             )
             self.canvas.select_node(dialog.created_node_ids[0])
         self.canvas.redraw()
+        if dialog.created_node_ids:
+            if existing_node_count == 0:
+                self.canvas.play_reveal(dialog.created_node_ids)
+            else:
+                self.canvas.spotlight_nodes(dialog.created_node_ids)
         self._refresh_agenda()
         self._update_recommendation_label()
         self._sync_pet_to_recommendation()
-        self._set_status("Agent proposal applied")
+        self._set_status("Mission map applied")
         self.root.after_idle(self.fit_view)
 
     def open_settings_dialog(self) -> None:
@@ -698,7 +998,8 @@ class MainWindow:
         self._set_status(f"Copied resource: {node.title}")
 
     def toggle_focus_mode(self) -> None:
-        enabled = bool(self.focus_mode_var.get())
+        enabled = not bool(self.context.graph.workspace.focus_mode)
+        self.focus_mode_var.set(enabled)
         self.context.graph.workspace.focus_mode = enabled
         if enabled:
             self.focus_started_at = datetime.now()
@@ -723,18 +1024,20 @@ class MainWindow:
         else:
             self.focus_started_at = None
             self._set_status("Focus mode: off")
+        self._style_focus_button()
+        self._refresh_focus_chip()
 
     def _update_recommendation_label(self) -> None:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
-            self.recommendation_var.set("Suggested next: No available node")
-            self.recommendation_detail_var.set("Create or load tasks to begin.")
+            self.recommendation_var.set("Suggested next checkpoint: No checkpoint available")
+            self.recommendation_detail_var.set("Load demo or generate a mission map to begin.")
             return
         reason = self.context.recommendation_engine.recommend_reason(
             self.context.graph,
             node,
         )
-        self.recommendation_var.set(f"Suggested next: {node.title}")
+        self.recommendation_var.set(f"Suggested next checkpoint: {node.title}")
         self.recommendation_detail_var.set(reason.replace(", ", "  \u00b7  "))
 
     def _refresh_agenda(self, preserve_scroll: bool = True) -> None:
@@ -748,6 +1051,8 @@ class MainWindow:
                 scroll_fraction = 0.0
         self.agenda_panel.agenda_service = self.context.agenda_service
         self.agenda_panel.refresh(self.context.graph)
+        if self._dark_mode:
+            self._apply_current_theme_to(self.agenda_panel)
         if preserve_scroll:
             self.root.after_idle(lambda: self._restore_agenda_scroll(scroll_fraction))
 
@@ -839,6 +1144,46 @@ class MainWindow:
     def _render_pet(self, reaction: str | None = None) -> None:
         if self.pet_panel is not None:
             self.pet_panel.render_pet(self.context.graph.pet, reaction)
+            if self._dark_mode:
+                self._apply_current_theme_to(self.pet_panel)
+
+    def _apply_current_theme_to(self, widget: tk.Misc) -> None:
+        bg = DARK_APP_BG if self._dark_mode else "#F6F8FB"
+        panel = DARK_PANEL if self._dark_mode else "#FFFFFF"
+        soft = DARK_PANEL_SOFT if self._dark_mode else "#EFF6FF"
+        border = DARK_BORDER if self._dark_mode else "#E5E7EB"
+        text = DARK_TEXT if self._dark_mode else "#111827"
+        muted = DARK_MUTED if self._dark_mode else "#6B7280"
+        self._apply_widget_theme(
+            widget,
+            panel=panel if widget is not self.root else bg,
+            soft=soft,
+            border=border,
+            text=text,
+            muted=muted,
+        )
+
+    def _refresh_focus_chip(self) -> None:
+        if self.focus_chip is None:
+            return
+        if not self.context.graph.workspace.focus_mode:
+            self.focus_chip.grid_remove()
+            return
+        current_node = self.context.graph.get_node(
+            self.context.graph.workspace.current_node_id or ""
+        )
+        self.focus_time_var.set(self._focus_elapsed_text())
+        self.focus_title_var.set(
+            current_node.title[:28]
+            if current_node is not None
+            else "Choose a task to focus"
+        )
+        width = self.root.winfo_width()
+        self.focus_chip.grid_remove()
+        if width and width < 1080:
+            self.focus_chip.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        else:
+            self.focus_chip.grid(row=0, column=1, rowspan=2, sticky="e", padx=(18, 0))
 
     def _submit_pet_request(self, message: str, mode: str) -> None:
         if self.pet_panel is None or self._pet_agent_busy:
@@ -933,18 +1278,18 @@ class MainWindow:
         self.context.pet_service.react_to_recommendation(recommended)
         if recommended is not None:
             self.canvas.select_node(recommended.id)
-            next_text = f" Next: {recommended.title}."
+            next_text = f" First checkpoint: {recommended.title}."
         else:
             next_text = ""
         self.pet_panel.add_message(
             "Pet",
-            f"Added {len(created)} tasks to the canvas.{next_text}",
+            f"Mission map updated with {len(created)} checkpoints.{next_text}",
         )
         self.canvas.redraw()
         self._refresh_agenda()
         self._update_recommendation_label()
         self._render_pet()
-        self._set_status(f"Companion planned {len(created)} tasks")
+        self._set_status(f"Mission map updated: {len(created)} checkpoints")
         self.root.after_idle(self.fit_view)
 
     def _set_status(self, message: str) -> None:
@@ -953,6 +1298,7 @@ class MainWindow:
 
     def _refresh_status_bar(self) -> None:
         self.status_var.set(self._status_text())
+        self._refresh_focus_chip()
         self.status_after_id = self.root.after(1000, self._refresh_status_bar)
 
     def _status_text(self) -> str:

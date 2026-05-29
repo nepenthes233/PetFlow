@@ -10,6 +10,26 @@ from petflow.agent.prompts import PromptBuilder
 from petflow.agent.proposal import AgentProposalValidator
 from petflow.app.app_context import AppContext
 from petflow.domain.exceptions import PetFlowError
+from petflow.ui.components import TextButton
+from petflow.ui.fonts import get_ui_font_family
+from petflow.ui.theme import (
+    BACKGROUND,
+    BORDER,
+    DARK_APP_BG,
+    DARK_BORDER,
+    DARK_MUTED,
+    DARK_PANEL,
+    DARK_PANEL_SOFT,
+    DARK_SURFACE,
+    DARK_TEXT,
+    DARK_TEXT_SECONDARY,
+    PRIMARY,
+    SURFACE,
+    SURFACE_SUBTLE,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
 
 
 class AgentDialog(tk.Toplevel):
@@ -17,10 +37,21 @@ class AgentDialog(tk.Toplevel):
         super().__init__(master)
         self.context = context
         self.node_id = node_id
-        self.title("Agent")
+        self._dark_mode = self.context.graph.workspace.theme == "dark"
+        self._bg = DARK_APP_BG if self._dark_mode else BACKGROUND
+        self._surface = DARK_SURFACE if self._dark_mode else SURFACE
+        self._soft = DARK_PANEL_SOFT if self._dark_mode else SURFACE_SUBTLE
+        self._border = DARK_BORDER if self._dark_mode else BORDER
+        self._text = DARK_TEXT if self._dark_mode else TEXT_PRIMARY
+        self._secondary = DARK_TEXT_SECONDARY if self._dark_mode else TEXT_SECONDARY
+        self._muted = DARK_MUTED if self._dark_mode else TEXT_MUTED
+        self.title("Generate Mission Map")
+        self.configure(bg=self._bg)
         self.resizable(True, True)
-        self.geometry("720x520")
+        self.geometry("820x680")
+        self.minsize(720, 580)
         self.result: dict[str, object] | None = None
+        self.font_family = get_ui_font_family(self)
 
         initial_mode = "split" if node_id is not None else "generate"
         self._mode_var = tk.StringVar(value=initial_mode)
@@ -39,57 +70,218 @@ class AgentDialog(tk.Toplevel):
         self._refresh_preview()
 
     def _build_ui(self) -> None:
-        body = ttk.Frame(self, padding=16)
+        style = ttk.Style(self)
+        style.configure(
+            "PetFlow.TCombobox",
+            padding=(8, 6),
+            fieldbackground=self._soft,
+            background=self._soft,
+            foreground=self._text,
+            arrowcolor=self._muted,
+        )
+
+        body = tk.Frame(self, bg=self._bg, padx=24, pady=22)
         body.grid(row=0, column=0, sticky="nsew")
-        body.columnconfigure(1, weight=1)
-        body.rowconfigure(3, weight=1)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(2, weight=1)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        ttk.Label(body, text="Mode").grid(row=0, column=0, sticky="w", pady=(0, 8))
-        mode_box = ttk.Combobox(
+        tk.Label(
             body,
+            text="Generate Mission Map",
+            bg=self._bg,
+            fg=self._text,
+            font=(self.font_family, 18, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            body,
+            text="Describe a pet-care goal. Companion will turn it into a workflow map.",
+            bg=self._bg,
+            fg=self._muted,
+            font=(self.font_family, 10),
+        ).grid(row=1, column=0, sticky="w", pady=(4, 16))
+
+        input_card = tk.Frame(
+            body,
+            bg=self._surface,
+            padx=16,
+            pady=16,
+            highlightthickness=1,
+            highlightbackground=self._border,
+        )
+        input_card.grid(row=2, column=0, sticky="nsew")
+        input_card.columnconfigure(0, weight=1)
+        input_card.rowconfigure(3, weight=1)
+
+        controls = tk.Frame(input_card, bg=self._surface)
+        controls.grid(row=0, column=0, sticky="ew")
+        controls.columnconfigure(1, weight=1)
+        tk.Label(
+            controls,
+            text="Mode",
+            bg=self._surface,
+            fg=self._secondary,
+            font=(self.font_family, 10, "bold"),
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        mode_box = ttk.Combobox(
+            controls,
             textvariable=self._mode_var,
             values=["generate", "split"],
             state="readonly",
-            width=20,
+            width=18,
+            style="PetFlow.TCombobox",
         )
-        mode_box.grid(row=0, column=1, sticky="w", pady=(0, 8))
+        mode_box.grid(row=0, column=1, sticky="w")
         mode_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_preview())
+        TextButton(
+            controls,
+            "Generate Preview",
+            self._refresh_preview,
+            self.font_family,
+            variant="secondary",
+        ).grid(row=0, column=2, sticky="e")
 
-        ttk.Label(body, text="Input").grid(row=1, column=0, sticky="nw", pady=(0, 8))
-        ttk.Entry(body, textvariable=self._goal_var, width=80).grid(
-            row=1, column=1, sticky="ew", pady=(0, 8)
+        tk.Label(
+            input_card,
+            text="Mission goal",
+            bg=self._surface,
+            fg=self._secondary,
+            font=(self.font_family, 10, "bold"),
+        ).grid(row=1, column=0, sticky="w", pady=(14, 6))
+        goal_entry = tk.Entry(
+            input_card,
+            textvariable=self._goal_var,
+            bg=self._soft,
+            fg=self._text,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=self._border,
+            highlightcolor=self._border,
+            insertbackground=self._text,
+            font=(self.font_family, 11),
+        )
+        goal_entry.grid(row=2, column=0, sticky="ew", ipady=8)
+
+        preview_shell = tk.Frame(input_card, bg=self._surface)
+        preview_shell.grid(row=3, column=0, sticky="nsew", pady=(16, 0))
+        preview_shell.columnconfigure(0, weight=1)
+        preview_shell.rowconfigure(1, weight=3)
+        preview_shell.rowconfigure(3, weight=2)
+        tk.Label(
+            preview_shell,
+            text="Mission preview",
+            bg=self._surface,
+            fg=self._secondary,
+            font=(self.font_family, 10, "bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self._preview = tk.Text(
+            preview_shell,
+            wrap="word",
+            height=10,
+            bg=self._soft,
+            fg=self._secondary,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=self._border,
+            padx=12,
+            pady=10,
+            font=(self.font_family, 10),
+        )
+        self._preview.grid(row=1, column=0, sticky="nsew")
+
+        tk.Label(
+            preview_shell,
+            text="Advanced: Raw JSON",
+            bg=self._surface,
+            fg=self._muted,
+            font=(self.font_family, 9, "bold"),
+        ).grid(row=2, column=0, sticky="w", pady=(12, 6))
+        self._raw_preview = tk.Text(
+            preview_shell,
+            wrap="none",
+            height=7,
+            bg=self._soft,
+            fg=self._muted,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=self._border,
+            padx=12,
+            pady=10,
+            font=("Consolas", 9),
+        )
+        self._raw_preview.grid(row=3, column=0, sticky="nsew")
+
+        tk.Label(body, textvariable=self._preview_var, bg=self._bg, fg="#DC2626").grid(
+            row=3, column=0, sticky="w", pady=(10, 0)
         )
 
-        ttk.Button(body, text="Refresh Preview", command=self._refresh_preview).grid(
-            row=2, column=1, sticky="w", pady=(0, 8)
-        )
+        actions = tk.Frame(body, bg=self._bg)
+        actions.grid(row=4, column=0, sticky="e", pady=(16, 0))
+        TextButton(
+            actions,
+            "Cancel",
+            self._cancel,
+            self.font_family,
+            variant="secondary",
+        ).pack(side="left", padx=(0, 8))
+        TextButton(
+            actions,
+            "Apply Mission",
+            self._apply,
+            self.font_family,
+            variant="primary",
+        ).pack(side="left")
+        if self._dark_mode:
+            self._apply_dark_to_children(self)
 
-        self._preview = tk.Text(body, wrap="word", height=18)
-        self._preview.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(0, 8))
-
-        ttk.Label(body, textvariable=self._preview_var, foreground="#dc2626").grid(
-            row=4, column=0, columnspan=2, sticky="w"
-        )
-
-        actions = ttk.Frame(body)
-        actions.grid(row=5, column=0, columnspan=2, sticky="e", pady=(16, 0))
-        ttk.Button(actions, text="Cancel", command=self._cancel).pack(
-            side="left", padx=(0, 8)
-        )
-        ttk.Button(actions, text="Apply", command=self._apply).pack(side="left")
+    def _apply_dark_to_children(self, widget: tk.Misc) -> None:
+        try:
+            cls = widget.winfo_class()
+            if cls in {"Frame", "LabelFrame"}:
+                widget.configure(bg=self._surface if widget is not self else self._bg)
+            elif cls == "Label":
+                widget.configure(bg=str(widget.master.cget("bg")), fg=self._text)
+            elif cls == "Button":
+                is_primary = str(widget.cget("bg")).lower() == PRIMARY.lower()
+                if not is_primary:
+                    widget.configure(
+                        bg=self._soft,
+                        fg=self._text,
+                        activebackground=self._border,
+                        activeforeground=self._text,
+                        highlightbackground=self._border,
+                    )
+            elif cls in {"Entry", "Text"}:
+                widget.configure(
+                    bg=self._soft,
+                    fg=self._text,
+                    insertbackground=self._text,
+                    highlightbackground=self._border,
+                    highlightcolor=self._border,
+                    selectbackground="#1E3A5F",
+                    selectforeground=self._text,
+                )
+        except tk.TclError:
+            pass
+        for child in widget.winfo_children():
+            self._apply_dark_to_children(child)
 
     def _refresh_preview(self) -> None:
         try:
             proposal = self._build_proposal()
             validated = self._validator.validate(proposal)
             self._proposal = proposal
-            self._set_preview(self._format_preview(validated, proposal))
+            self._set_preview(self._format_summary(validated))
+            self._set_raw_preview(json.dumps(proposal, ensure_ascii=False, indent=2))
             self._preview_var.set("")
         except PetFlowError as exc:
             self._proposal = None
             self._set_preview("")
+            self._set_raw_preview("")
             self._preview_var.set(str(exc))
 
     def _build_proposal(self) -> dict[str, object]:
@@ -140,10 +332,7 @@ class AgentDialog(tk.Toplevel):
         self._preview.configure(state="disabled")
 
     @staticmethod
-    def _format_preview(
-        proposal: dict[str, object],
-        raw_proposal: dict[str, object],
-    ) -> str:
+    def _format_summary(proposal: dict[str, object]) -> str:
         nodes = proposal.get("nodes", [])
         edges = proposal.get("edges", [])
         lines = [
@@ -165,10 +354,13 @@ class AgentDialog(tk.Toplevel):
                     lines.append(
                         f"- {edge.get('source', '')} -> {edge.get('target', '')} ({label})"
                     )
-        lines.append("")
-        lines.append("JSON:")
-        lines.append(json.dumps(raw_proposal, ensure_ascii=False, indent=2))
         return "\n".join(lines)
+
+    def _set_raw_preview(self, content: str) -> None:
+        self._raw_preview.configure(state="normal")
+        self._raw_preview.delete("1.0", tk.END)
+        self._raw_preview.insert("1.0", content)
+        self._raw_preview.configure(state="disabled")
 
     def _cancel(self) -> None:
         self.result = None

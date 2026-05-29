@@ -165,11 +165,13 @@ class InspectorPanel(tk.Frame):
         scrollbar.pack(side="right", fill="y")
         body.bind(
             "<Configure>",
-            lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
+            lambda _event=None: canvas.configure(scrollregion=canvas.bbox("all")),
         )
         canvas.bind(
             "<Configure>",
-            lambda event: canvas.itemconfigure(window_id, width=event.width),
+            lambda event=None: canvas.itemconfigure(
+                window_id, width=canvas.winfo_width() if event is None else event.width
+            ),
         )
         self._active_scroll_canvas = canvas
 
@@ -414,15 +416,15 @@ class InspectorPanel(tk.Frame):
             try:
                 widget.bind(
                     "<MouseWheel>",
-                    lambda event, target=canvas: self._scroll_target(target, event),
+                    lambda event=None, target=canvas: self._scroll_target(target, event),
                 )
                 widget.bind(
                     "<Button-4>",
-                    lambda event, target=canvas: self._scroll_target(target, event),
+                    lambda event=None, target=canvas: self._scroll_target(target, event),
                 )
                 widget.bind(
                     "<Button-5>",
-                    lambda event, target=canvas: self._scroll_target(target, event),
+                    lambda event=None, target=canvas: self._scroll_target(target, event),
                 )
             except tk.TclError:
                 return
@@ -431,7 +433,9 @@ class InspectorPanel(tk.Frame):
 
         bind_widget(root)
 
-    def _scroll_target(self, canvas: tk.Canvas, event: tk.Event) -> str:
+    def _scroll_target(self, canvas: tk.Canvas, event: tk.Event | None) -> str:
+        if event is None:
+            return "break"
         try:
             self._active_scroll_canvas = canvas
             number = getattr(event, "num", None)

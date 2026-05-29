@@ -7,14 +7,25 @@ from typing import Callable
 from petflow.domain.entities import Node
 from petflow.domain.graph import GraphModel
 from petflow.services.agenda_service import AgendaDay, AgendaService
+from petflow.ui.icon_button import IconButton
+from petflow.ui.theme import (
+    BORDER,
+    PRIMARY,
+    PRIMARY_SOFT,
+    SURFACE,
+    SURFACE_SUBTLE,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
 
 
 class AgendaPanel(tk.Frame):
-    BG = "#FFFFFF"
-    TEXT = "#111827"
-    MUTED = "#6B7280"
-    BORDER = "#E5E7EB"
-    ACCENT = "#2563EB"
+    BG = SURFACE
+    TEXT = TEXT_PRIMARY
+    MUTED = TEXT_MUTED
+    BORDER = BORDER
+    ACCENT = PRIMARY
 
     def __init__(
         self,
@@ -28,8 +39,8 @@ class AgendaPanel(tk.Frame):
             master,
             bg=self.BG,
             width=280,
-            padx=18,
-            pady=20,
+            padx=16,
+            pady=16,
             highlightthickness=1,
             highlightbackground=self.BORDER,
         )
@@ -47,30 +58,24 @@ class AgendaPanel(tk.Frame):
             heading,
             text="UPCOMING",
             bg=self.BG,
-            fg=self.ACCENT,
+            fg=TEXT_MUTED,
             font=(font_family, 9, "bold"),
         ).pack(side="left", anchor="w")
         if on_collapse is not None:
-            tk.Button(
+            IconButton(
                 heading,
-                text="Hide",
+                "hide",
+                "Hide schedule panel",
                 command=on_collapse,
-                bg=self.BG,
-                fg=self.MUTED,
-                activebackground="#F3F4F6",
-                relief="flat",
-                borderwidth=0,
-                cursor="hand2",
-                font=(font_family, 8),
             ).pack(side="right")
         tk.Label(
             self,
             text="Next 7 days",
             bg=self.BG,
             fg=self.TEXT,
-            font=(font_family, 18, "bold"),
-        ).pack(anchor="w", pady=(2, 2))
-        tk.Frame(self, bg=self.BORDER, height=1).pack(fill="x", pady=(15, 8))
+            font=(font_family, 16, "bold"),
+        ).pack(anchor="w", pady=(2, 0))
+        tk.Frame(self, bg=self.BORDER, height=1).pack(fill="x", pady=(12, 8))
 
         list_shell = tk.Frame(self, bg=self.BG)
         list_shell.pack(fill="both", expand=True)
@@ -120,7 +125,10 @@ class AgendaPanel(tk.Frame):
         card.pack(fill="x")
         label = self._day_label(day.date)
         summary = str(len(day.nodes))
-        header = tk.Frame(card, bg=self.BG, pady=4)
+        today = day.date == date.today()
+        row_bg = PRIMARY_SOFT if today else self.BG
+        label_fg = PRIMARY if today else TEXT_SECONDARY
+        header = tk.Frame(card, bg=row_bg)
         header.pack(fill="x")
         day_button = tk.Button(
             header,
@@ -130,12 +138,12 @@ class AgendaPanel(tk.Frame):
             relief="flat",
             borderwidth=0,
             cursor="hand2",
-            bg=self.BG,
-            activebackground="#F3F4F6",
-            fg=self.TEXT,
-            font=(self.font_family, 10, "bold"),
-            padx=0,
-            pady=7,
+            bg=row_bg,
+            activebackground=SURFACE_SUBTLE,
+            fg=label_fg,
+            font=(self.font_family, 10, "bold" if today else "normal"),
+            padx=8,
+            pady=8,
         )
         day_button.pack(side="left", fill="x", expand=True)
         tk.Button(
@@ -146,24 +154,24 @@ class AgendaPanel(tk.Frame):
             relief="flat",
             borderwidth=0,
             cursor="hand2",
-            bg=self.BG,
-            activebackground="#F3F4F6",
-            fg=self.MUTED,
-            font=(self.font_family, 10),
-            padx=5,
-            pady=7,
+            bg=row_bg,
+            activebackground=SURFACE_SUBTLE,
+            fg=TEXT_MUTED,
+            font=(self.font_family, 9),
+            padx=8,
+            pady=8,
         ).pack(side="right")
         if open_day and not day.nodes:
             tk.Label(
                 card,
-                text="Nothing scheduled",
+                text="No scheduled tasks",
                 bg=self.BG,
-                fg=self.MUTED,
+                fg="#94A3B8",
                 anchor="w",
                 font=(self.font_family, 9),
-                padx=18,
-                pady=3,
-            ).pack(fill="x", pady=(0, 6))
+                padx=24,
+                pady=6,
+            ).pack(fill="x", pady=(0, 4))
         elif open_day:
             for node in day.nodes:
                 self._draw_node(card, node)
@@ -180,10 +188,10 @@ class AgendaPanel(tk.Frame):
             borderwidth=0,
             cursor="hand2",
             padx=18,
-            pady=3,
+            pady=4,
             bg=self.BG,
-            activebackground="#EFF6FF",
-            fg=self.TEXT,
+            activebackground=SURFACE_SUBTLE,
+            fg=TEXT_SECONDARY,
             font=(self.font_family, 10),
         )
         button.pack(fill="x")
