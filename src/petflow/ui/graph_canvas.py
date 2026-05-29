@@ -106,6 +106,9 @@ class GraphCanvas(tk.Canvas):
         on_copy_resource: Callable[[str], None] | None = None,
         on_agent_split: Callable[[str], None] | None = None,
         on_pet_reaction: Callable[[str | None], None] | None = None,
+        on_selection_changed: Callable[[str | None, str | None], None] | None = None,
+        on_focus_node_title: Callable[[str], None] | None = None,
+        on_status_hint: Callable[[str], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg="#F6F8FB", highlightthickness=0, **kwargs)
@@ -120,6 +123,9 @@ class GraphCanvas(tk.Canvas):
         self.on_copy_resource = on_copy_resource
         self.on_agent_split = on_agent_split
         self.on_pet_reaction = on_pet_reaction
+        self.on_selection_changed = on_selection_changed
+        self.on_focus_node_title = on_focus_node_title
+        self.on_status_hint = on_status_hint
         self._node_items: dict[str, list[int]] = {}
         self._item_to_node: dict[int, str] = {}
         self._edge_items: dict[str, list[int]] = {}
@@ -176,6 +182,7 @@ class GraphCanvas(tk.Canvas):
             self._completion_after_id = None
         self._panning = False
         self.redraw()
+        self._notify_selection_changed()
 
     def redraw(self) -> None:
         self._redraw()
@@ -190,17 +197,54 @@ class GraphCanvas(tk.Canvas):
         if node_id is not None and self.context.graph.get_node(node_id) is None:
             node_id = None
         self._selected_node_id = node_id
+        if node_id is not None:
+            self._selected_edge_id = None
         self.context.graph_service.set_current_node(node_id)
         self.focus_set()
         self.redraw()
+        self._notify_selection_changed()
+
+    def select_edge(self, edge_id: str | None) -> None:
+        if edge_id is not None and self.context.graph.get_edge(edge_id) is None:
+            edge_id = None
+        self._selected_edge_id = edge_id
+        if edge_id is not None:
+            self._selected_node_id = None
+            self.context.graph_service.set_current_node(None)
+        self.focus_set()
+        self.redraw()
+        self._notify_selection_changed()
+
+    def clear_selection(self) -> None:
+        if self._selected_node_id is None and self._selected_edge_id is None:
+            return
+        self._selected_node_id = None
+        self._selected_edge_id = None
+        self.context.graph_service.set_current_node(None)
+        self.redraw()
+        self._notify_selection_changed()
+
+    def _start_background_pan(self, event: tk.Event) -> None:
+        self._panning = True
+        self._drag_node_id = None
+        self._pan_start_x = float(event.x)
+        self._pan_start_y = float(event.y)
+        self._pan_origin_x = self.context.graph.workspace.pan_x
+        self._pan_origin_y = self.context.graph.workspace.pan_y
 
     def edit_selected_node(self) -> None:
         if self._selected_node_id is not None:
             self._edit_node(self._selected_node_id)
 
+    def edit_node(self, node_id: str) -> None:
+        self._edit_node(node_id)
+
     def mark_selected_node_status(self, status: NodeStatus) -> None:
         if self._selected_node_id is not None:
             self._mark_node_status(self._selected_node_id, status)
+
+    def mark_node_status(self, node_id: str, status: NodeStatus) -> None:
+        self._mark_node_status(node_id, status)
 
     def delete_selected_node(self) -> None:
         if self._selected_node_id is not None:
@@ -210,7 +254,10 @@ class GraphCanvas(tk.Canvas):
         self._edge_mode = True
         self._edge_start_node_id = None
         self._selected_edge_id = None
+        self._selected_node_id = None
+        self._status_hint("Choose source node")
         self.redraw()
+        self._notify_selection_changed()
 
     def begin_edge_from_node(self, node_id: str) -> None:
         if self.context.graph.get_node(node_id) is None:
@@ -219,11 +266,16 @@ class GraphCanvas(tk.Canvas):
         self._edge_start_node_id = node_id
         self._selected_node_id = node_id
         self._selected_edge_id = None
+        self._status_hint("Choose target node")
         self.redraw()
+        self._notify_selection_changed()
 
     def cancel_edge_mode(self) -> None:
+        was_active = self._edge_mode
         self._edge_mode = False
         self._edge_start_node_id = None
+        if was_active:
+            self._status_hint("Edge mode canceled")
         self.redraw()
 
     def delete_selected_edge(self) -> None:
@@ -233,6 +285,9 @@ class GraphCanvas(tk.Canvas):
     def edit_selected_edge(self) -> None:
         if self._selected_edge_id is not None:
             self._edit_edge(self._selected_edge_id)
+
+    def edit_edge(self, edge_id: str) -> None:
+        self._edit_edge(edge_id)
 
     def zoom_in(self) -> None:
         self._set_zoom(self.context.graph.workspace.zoom * 1.15)
@@ -247,6 +302,16 @@ class GraphCanvas(tk.Canvas):
         workspace.pan_y = 0.0
         self.redraw()
 
+    def visible_center_graph_position(self) -> tuple[float, float]:
+        self.update_idletasks()
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        center_x, center_y = self._to_graph(width / 2, height / 2)
+        return (
+            max(0.0, center_x - self.NODE_WIDTH / 2),
+            max(0.0, center_y - self.NODE_HEIGHT / 2),
+        )
+
     def _redraw(self) -> None:
         self.delete("all")
         self._node_items.clear()
@@ -257,6 +322,7 @@ class GraphCanvas(tk.Canvas):
 
         if not self.context.graph.nodes:
             self._draw_empty_hint()
+            self._draw_edge_mode_hint()
             return
 
         for edge in self.context.graph.edges.values():
@@ -264,6 +330,7 @@ class GraphCanvas(tk.Canvas):
         for node in self.context.graph.nodes.values():
             self._draw_node(node)
         self._draw_completion_overlay()
+        self._draw_edge_mode_hint()
 
     def _draw_empty_hint(self) -> None:
         x, y = self._to_screen(80, 40)
@@ -283,6 +350,32 @@ class GraphCanvas(tk.Canvas):
             anchor="w",
             fill="#64748b",
             font=(self.font_family, 11),
+        )
+
+    def _draw_edge_mode_hint(self) -> None:
+        if not self._edge_mode:
+            return
+        message = "Choose target node" if self._edge_start_node_id else "Choose source node"
+        x = self.winfo_width() / 2
+        y = 26
+        width = 250
+        self._rounded_rectangle(
+            x - width / 2,
+            y - 15,
+            x + width / 2,
+            y + 15,
+            14,
+            fill="#111827",
+            outline="",
+            tags=("graph", "edge-mode-hint"),
+        )
+        self.create_text(
+            x,
+            y,
+            text=f"{message}   ·   Esc to cancel",
+            fill="#FFFFFF",
+            font=(self.font_family, 9, "bold"),
+            tags=("graph", "edge-mode-hint"),
         )
 
     def _draw_node(self, node: Node) -> None:
@@ -493,20 +586,32 @@ class GraphCanvas(tk.Canvas):
         node_id = self._node_id_from_event(event)
         edge_id = self._edge_id_from_event(event)
         self._drag_node_id = None
-        if self._edge_mode and node_id is not None:
-            self._handle_edge_mode_click(node_id)
+        self._panning = False
+        if self._edge_mode:
+            if node_id is not None:
+                self._handle_edge_mode_click(node_id)
+            else:
+                self._status_hint("Choose a node, or press Esc to cancel edge mode")
             return
-        self._selected_edge_id = edge_id
-        self.select_node(node_id)
         if node_id is not None:
+            self.select_node(node_id)
             node = self.context.graph.get_node(node_id)
             if node is not None:
                 graph_x, graph_y = self._event_graph_position(event)
                 self._drag_node_id = node_id
                 self._drag_offset_x = graph_x - node.x
                 self._drag_offset_y = graph_y - node.y
+            return
+        if edge_id is not None:
+            self.select_edge(edge_id)
+            return
+        self.clear_selection()
+        self._start_background_pan(event)
 
     def _on_drag(self, event: tk.Event) -> None:
+        if self._panning:
+            self._on_pan_drag(event)
+            return
         if self._drag_node_id is None:
             return
         graph_x, graph_y = self._event_graph_position(event)
@@ -547,7 +652,11 @@ class GraphCanvas(tk.Canvas):
         node_id = self._node_id_from_event(event)
         if node_id is None:
             return
-        self._edit_node(node_id)
+        self.select_node(node_id)
+        if self.on_focus_node_title is not None:
+            self.on_focus_node_title(node_id)
+        else:
+            self._edit_node(node_id)
 
     def _on_motion(self, event: tk.Event) -> None:
         node_id = self._node_id_from_event(event)
@@ -591,10 +700,7 @@ class GraphCanvas(tk.Canvas):
         node_id = self._node_id_from_event(event)
         edge_id = self._edge_id_from_event(event)
         if edge_id is not None:
-            self._selected_edge_id = edge_id
-            self._selected_node_id = None
-            self.context.graph_service.set_current_node(None)
-            self.redraw()
+            self.select_edge(edge_id)
             menu = tk.Menu(self, tearoff=False)
             menu.add_command(
                 label="Edit Edge", command=lambda: self._edit_edge(edge_id)
@@ -710,6 +816,7 @@ class GraphCanvas(tk.Canvas):
                     self.context.graph_service.set_current_node(next_node.id)
                 self._start_completion_flow(node_id, next_node.id if next_node else None)
             self.redraw()
+            self._notify_selection_changed()
             self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Edit node failed", str(exc), parent=self)
@@ -727,6 +834,7 @@ class GraphCanvas(tk.Canvas):
                     self.context.graph_service.set_current_node(next_node.id)
                 self._start_completion_flow(node_id, next_node.id if next_node else None)
             self.redraw()
+            self._notify_selection_changed()
             self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Update status failed", str(exc), parent=self)
@@ -737,7 +845,9 @@ class GraphCanvas(tk.Canvas):
         try:
             self.context.graph_service.delete_node(node_id)
             self._selected_node_id = None
+            self._selected_edge_id = None
             self.redraw()
+            self._notify_selection_changed()
             self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Delete node failed", str(exc), parent=self)
@@ -749,6 +859,8 @@ class GraphCanvas(tk.Canvas):
             self.context.graph_service.delete_edge(edge_id)
             self._selected_edge_id = None
             self.redraw()
+            self._notify_selection_changed()
+            self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Delete edge failed", str(exc), parent=self)
 
@@ -767,6 +879,8 @@ class GraphCanvas(tk.Canvas):
                 label=str(dialog.result["label"]),
             )
             self.redraw()
+            self._notify_selection_changed()
+            self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Edit edge failed", str(exc), parent=self)
 
@@ -798,25 +912,26 @@ class GraphCanvas(tk.Canvas):
         if self._edge_start_node_id is None:
             self._edge_start_node_id = node_id
             self._selected_node_id = node_id
+            self._selected_edge_id = None
+            self._status_hint("Choose target node")
             self.redraw()
+            self._notify_selection_changed()
             return
         if self._edge_start_node_id == node_id:
-            return
-        dialog = EdgeDialog(self)
-        self.wait_window(dialog)
-        if dialog.result is None:
-            self.cancel_edge_mode()
+            self._status_hint("Choose a different target node")
             return
         try:
-            self.context.graph_service.create_edge(
+            edge = self.context.graph_service.create_edge(
                 self._edge_start_node_id,
                 node_id,
-                dialog.result["type"],
-                label=str(dialog.result["label"]),
+                EdgeType.DEPENDENCY,
+                label="",
             )
-            self._selected_edge_id = None
-            self.cancel_edge_mode()
-            self.redraw()
+            self._edge_mode = False
+            self._edge_start_node_id = None
+            self.select_edge(edge.id)
+            self._status_hint("Edge created")
+            self._notify_graph_changed()
         except PetFlowError as exc:
             messagebox.showerror("Create edge failed", str(exc), parent=self)
 
@@ -826,6 +941,14 @@ class GraphCanvas(tk.Canvas):
     ) -> None:
         if action is not None:
             action(node_id)
+
+    def _notify_selection_changed(self) -> None:
+        if self.on_selection_changed is not None:
+            self.on_selection_changed(self._selected_node_id, self._selected_edge_id)
+
+    def _status_hint(self, message: str) -> None:
+        if self.on_status_hint is not None:
+            self.on_status_hint(message)
 
     def _notify_graph_changed(self) -> None:
         if self.on_graph_changed is not None:
