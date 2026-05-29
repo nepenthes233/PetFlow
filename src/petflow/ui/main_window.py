@@ -43,10 +43,12 @@ class MainWindow:
         self.right_body: tk.Frame | None = None
         self.edit_tab_button: tk.Button | None = None
         self.companion_tab_button: tk.Button | None = None
+        self.edit_mode_button: tk.Button | None = None
         self.workspace_panes: tk.PanedWindow | None = None
         self._agenda_visible = True
         self._pet_panel_visible = True
-        self._right_tab = "edit"
+        self._edit_mode = False
+        self._right_tab = "companion"
         self.more_menu: tk.Menu | None = None
         self.more_button: tk.Button | None = None
         self._pet_agent_busy = False
@@ -94,6 +96,9 @@ class MainWindow:
         self._button(left, "New Edge", self.begin_edge_mode).pack(
             side="left", padx=(8, 0)
         )
+        self.edit_mode_button = self._button(left, "Edit Mode: Off", self.toggle_edit_mode)
+        self.edit_mode_button.pack(side="left", padx=(8, 0))
+        self._style_edit_mode_button()
 
         center = tk.Frame(toolbar, bg="#FFFFFF")
         center.pack(side="left", padx=(34, 0), pady=12)
@@ -290,6 +295,8 @@ class MainWindow:
             bg="#FFFFFF",
             highlightthickness=1,
             highlightbackground="#E5E7EB",
+            highlightcolor="#E5E7EB",
+            takefocus=0,
         )
         self.right_panel.pack_propagate(False)
         tabs = tk.Frame(self.right_panel, bg="#FFFFFF", padx=12, pady=12)
@@ -300,6 +307,8 @@ class MainWindow:
             command=lambda: self._show_right_tab("edit"),
             relief="flat",
             borderwidth=0,
+            highlightthickness=0,
+            takefocus=0,
             padx=14,
             pady=8,
             cursor="hand2",
@@ -312,6 +321,8 @@ class MainWindow:
             command=lambda: self._show_right_tab("companion"),
             relief="flat",
             borderwidth=0,
+            highlightthickness=0,
+            takefocus=0,
             padx=14,
             pady=8,
             cursor="hand2",
@@ -339,7 +350,7 @@ class MainWindow:
             self._submit_pet_request,
             self.toggle_pet_panel,
         )
-        self._show_right_tab("edit")
+        self._show_right_tab("companion")
 
     def _show_right_tab(self, tab: str) -> None:
         self._right_tab = tab
@@ -368,6 +379,49 @@ class MainWindow:
                 activeforeground="#2563EB" if selected else "#111827",
             )
 
+    def toggle_edit_mode(self) -> None:
+        self._edit_mode = not self._edit_mode
+        if self._edit_mode:
+            self._ensure_right_panel_visible()
+            self._show_right_tab("edit")
+            self._set_status("Edit mode: on")
+            if self.inspector_panel is not None:
+                self.inspector_panel.show_selection(
+                    self.canvas.selected_node_id(), self.canvas.selected_edge_id()
+                )
+        else:
+            self.canvas.cancel_edge_mode()
+            if self._pet_panel_visible:
+                self._show_right_tab("companion")
+            self._set_status("Edit mode: off")
+        self._style_edit_mode_button()
+
+    def _set_edit_mode(self, enabled: bool) -> None:
+        if self._edit_mode == enabled:
+            if enabled:
+                self._ensure_right_panel_visible()
+                self._show_right_tab("edit")
+            return
+        self._edit_mode = enabled
+        if enabled:
+            self._ensure_right_panel_visible()
+            self._show_right_tab("edit")
+        elif self._pet_panel_visible:
+            self._show_right_tab("companion")
+        self._style_edit_mode_button()
+
+    def _style_edit_mode_button(self) -> None:
+        if self.edit_mode_button is None:
+            return
+        active = self._edit_mode
+        self.edit_mode_button.configure(
+            text="Edit Mode: On" if active else "Edit Mode: Off",
+            bg="#DBEAFE" if active else "#FFFFFF",
+            fg="#2563EB" if active else "#374151",
+            activebackground="#BFDBFE" if active else "#F3F4F6",
+            activeforeground="#1D4ED8" if active else "#111827",
+        )
+
     def _ensure_right_panel_visible(self) -> None:
         if not self._pet_panel_visible:
             self._pet_panel_visible = True
@@ -381,7 +435,10 @@ class MainWindow:
         self._pet_panel_visible = not self._pet_panel_visible
         self._rebuild_workspace_panes()
         if self._pet_panel_visible:
-            self._show_right_tab("companion")
+            if self._edit_mode:
+                self._show_right_tab("edit")
+            else:
+                self._show_right_tab("companion")
 
     def _rebuild_workspace_panes(self) -> None:
         if (
@@ -418,12 +475,11 @@ class MainWindow:
                 x=x,
                 y=y,
             )
+            self._set_edit_mode(True)
             self.canvas.select_node(node.id)
             self.canvas.redraw()
             self._refresh_agenda()
             self._update_recommendation_label()
-            self._ensure_right_panel_visible()
-            self._show_right_tab("edit")
             if self.inspector_panel is not None:
                 self.inspector_panel.show_selection(node.id, None)
                 self.root.after(80, self.inspector_panel.focus_title)
@@ -444,8 +500,7 @@ class MainWindow:
         self.canvas.delete_selected_node()
 
     def begin_edge_mode(self) -> None:
-        self._ensure_right_panel_visible()
-        self._show_right_tab("edit")
+        self._set_edit_mode(True)
         self.canvas.begin_edge_mode()
 
     def delete_selected_edge(self) -> None:
@@ -470,7 +525,7 @@ class MainWindow:
             if self.inspector_panel is not None:
                 self.inspector_panel.set_context(self.context)
             self.canvas.set_context(self.context)
-            self._refresh_agenda()
+            self._refresh_agenda(preserve_scroll=False)
             self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
@@ -487,8 +542,10 @@ class MainWindow:
             self.context.graph_layout_service.apply_grid_layout(
                 self.context.graph_service
             )
+            if self.inspector_panel is not None:
+                self.inspector_panel.set_context(self.context)
             self.canvas.set_context(self.context)
-            self._refresh_agenda()
+            self._refresh_agenda(preserve_scroll=False)
             self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
@@ -680,15 +737,33 @@ class MainWindow:
         self.recommendation_var.set(f"Suggested next: {node.title}")
         self.recommendation_detail_var.set(reason.replace(", ", "  \u00b7  "))
 
-    def _refresh_agenda(self) -> None:
-        if self.agenda_panel is not None:
-            self.agenda_panel.agenda_service = self.context.agenda_service
-            self.agenda_panel.refresh(self.context.graph)
+    def _refresh_agenda(self, preserve_scroll: bool = True) -> None:
+        if self.agenda_panel is None:
+            return
+        scroll_fraction = 0.0
+        if preserve_scroll:
+            try:
+                scroll_fraction = float(self.agenda_panel._canvas.yview()[0])
+            except (AttributeError, tk.TclError, IndexError):
+                scroll_fraction = 0.0
+        self.agenda_panel.agenda_service = self.context.agenda_service
+        self.agenda_panel.refresh(self.context.graph)
+        if preserve_scroll:
+            self.root.after_idle(lambda: self._restore_agenda_scroll(scroll_fraction))
+
+    def _restore_agenda_scroll(self, fraction: float) -> None:
+        if self.agenda_panel is None:
+            return
+        try:
+            self.agenda_panel._canvas.yview_moveto(max(0.0, min(1.0, fraction)))
+        except (AttributeError, tk.TclError):
+            return
 
     def _select_agenda_node(self, node_id: str) -> None:
         self.canvas.select_node(node_id)
-        self._ensure_right_panel_visible()
-        self._show_right_tab("edit")
+        if self._edit_mode:
+            self._ensure_right_panel_visible()
+            self._show_right_tab("edit")
         node = self.context.graph.get_node(node_id)
         if node is not None:
             self._set_status(f"Selected: {node.title}")
@@ -698,7 +773,7 @@ class MainWindow:
     ) -> None:
         if self.inspector_panel is not None:
             self.inspector_panel.show_selection(node_id, edge_id)
-        if node_id is not None or edge_id is not None:
+        if self._edit_mode and (node_id is not None or edge_id is not None):
             self._ensure_right_panel_visible()
             self._show_right_tab("edit")
         if node_id is not None:
@@ -709,22 +784,32 @@ class MainWindow:
             self._set_status("Selected edge")
 
     def _focus_inspector_title(self, node_id: str) -> None:
-        self._ensure_right_panel_visible()
-        self._show_right_tab("edit")
+        self._set_edit_mode(True)
         if self.inspector_panel is not None:
             self.inspector_panel.show_selection(node_id, None)
             self.root.after(20, self.inspector_panel.focus_title)
 
     def _on_inspector_graph_changed(self) -> None:
+        # Inspector edits should not rebuild the Inspector or agenda list.
+        # Rebuilding both panels causes visible flashing and loses the user's
+        # exact in-panel editing position. Keep this path lightweight.
         self.canvas.redraw()
-        self._refresh_agenda()
         self._update_recommendation_label()
         self._render_pet()
 
     def _change_node_status_from_inspector(
         self, node_id: str, status: NodeStatus
     ) -> None:
-        self.canvas.mark_node_status(node_id, status)
+        try:
+            self.context.graph_service.update_node_status(node_id, status)
+            self.canvas.redraw()
+            self._update_recommendation_label()
+            self._render_pet()
+            self._set_status(f"Node status: {status.value}")
+        except PetFlowError as exc:
+            messagebox.showerror("Update status failed", str(exc), parent=self.root)
+            if self.inspector_panel is not None:
+                self.inspector_panel.refresh(preserve_scroll=True)
 
     def _delete_node_from_inspector(self, node_id: str) -> None:
         self.canvas.select_node(node_id)

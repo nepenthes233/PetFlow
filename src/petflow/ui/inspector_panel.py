@@ -42,7 +42,7 @@ class InspectorPanel(tk.Frame):
         on_advanced_node: Callable[[str], None] | None = None,
         on_advanced_edge: Callable[[str], None] | None = None,
     ) -> None:
-        super().__init__(master, width=330, bg=self.BG)
+        super().__init__(master, width=330, bg=self.BG, highlightthickness=0, takefocus=0)
         self.pack_propagate(False)
         self.context = context
         self.font_family = font_family
@@ -65,6 +65,8 @@ class InspectorPanel(tk.Frame):
         self._repeat_interval_var = tk.StringVar(value="")
         self._next_due_var = tk.StringVar(value="")
         self._syncing = False
+        self._active_scroll_canvas: tk.Canvas | None = None
+        self._last_scroll_fraction = 0.0
         self.show_empty()
 
     def set_context(self, context: AppContext) -> None:
@@ -78,9 +80,10 @@ class InspectorPanel(tk.Frame):
     ) -> None:
         self._node_id = node_id
         self._edge_id = None if node_id is not None else edge_id
-        self.refresh()
+        self.refresh(preserve_scroll=False)
 
-    def refresh(self) -> None:
+    def refresh(self, preserve_scroll: bool = True) -> None:
+        self._last_scroll_fraction = self._current_scroll_fraction() if preserve_scroll else 0.0
         if self._node_id is not None:
             node = self.context.graph.get_node(self._node_id)
             if node is not None:
@@ -145,7 +148,7 @@ class InspectorPanel(tk.Frame):
 
         outer = tk.Frame(self, bg=self.BG)
         outer.pack(fill="both", expand=True)
-        canvas = tk.Canvas(outer, bg=self.BG, highlightthickness=0, width=330)
+        canvas = tk.Canvas(outer, bg=self.BG, highlightthickness=0, borderwidth=0, width=330, takefocus=0)
         scrollbar = tk.Scrollbar(
             outer,
             orient="vertical",
@@ -168,8 +171,7 @@ class InspectorPanel(tk.Frame):
             "<Configure>",
             lambda event: canvas.itemconfigure(window_id, width=event.width),
         )
-        canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
-        body.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
+        self._active_scroll_canvas = canvas
 
         self._eyebrow(body, "EDIT NODE")
         self._title_entry = self._entry(body, self._title_var, size=17, bold=True)
@@ -279,7 +281,8 @@ class InspectorPanel(tk.Frame):
             borderwidth=0,
             highlightthickness=1,
             highlightbackground=self.BORDER,
-            highlightcolor=self.ACCENT,
+            highlightcolor=self.BORDER,
+            takefocus=1,
             padx=10,
             pady=8,
             font=(self.font_family, 10),
@@ -321,6 +324,9 @@ class InspectorPanel(tk.Frame):
             command=lambda: self._call_node_action(self.on_delete_node, node.id),
             danger=True,
         ).pack(side="right")
+
+        self._bind_scroll_to_descendants(outer, canvas)
+        self._restore_scroll_position(canvas)
 
     def _draw_edge(self, edge: Edge) -> None:
         self._clear()
@@ -380,8 +386,71 @@ class InspectorPanel(tk.Frame):
     def _clear(self) -> None:
         for child in self.winfo_children():
             child.destroy()
+        self._active_scroll_canvas = None
         self._title_entry = None
         self._description_text = None
+
+    def _current_scroll_fraction(self) -> float:
+        canvas = self._active_scroll_canvas
+        if canvas is None:
+            return self._last_scroll_fraction
+        try:
+            return float(canvas.yview()[0])
+        except tk.TclError:
+            return self._last_scroll_fraction
+
+    def _restore_scroll_position(self, canvas: tk.Canvas) -> None:
+        fraction = max(0.0, min(1.0, self._last_scroll_fraction))
+        canvas.after_idle(lambda: self._safe_yview_moveto(canvas, fraction))
+
+    def _safe_yview_moveto(self, canvas: tk.Canvas, fraction: float) -> None:
+        try:
+            canvas.yview_moveto(fraction)
+        except tk.TclError:
+            return
+
+    def _bind_scroll_to_descendants(self, root: tk.Misc, canvas: tk.Canvas) -> None:
+        def bind_widget(widget: tk.Misc) -> None:
+            try:
+                widget.bind(
+                    "<MouseWheel>",
+                    lambda event, target=canvas: self._scroll_target(target, event),
+                )
+                widget.bind(
+                    "<Button-4>",
+                    lambda event, target=canvas: self._scroll_target(target, event),
+                )
+                widget.bind(
+                    "<Button-5>",
+                    lambda event, target=canvas: self._scroll_target(target, event),
+                )
+            except tk.TclError:
+                return
+            for child in widget.winfo_children():
+                bind_widget(child)
+
+        bind_widget(root)
+
+    def _scroll_target(self, canvas: tk.Canvas, event: tk.Event) -> str:
+        try:
+            self._active_scroll_canvas = canvas
+            number = getattr(event, "num", None)
+            if number == 4:
+                units = -3
+            elif number == 5:
+                units = 3
+            else:
+                delta = getattr(event, "delta", 0)
+                if delta == 0:
+                    return "break"
+                units = int(-delta / 120)
+                if units == 0:
+                    units = -1 if delta > 0 else 1
+            canvas.yview_scroll(units, "units")
+            self._last_scroll_fraction = float(canvas.yview()[0])
+        except tk.TclError:
+            pass
+        return "break"
 
     def _eyebrow(self, master: tk.Misc, text: str) -> None:
         tk.Label(
@@ -429,7 +498,8 @@ class InspectorPanel(tk.Frame):
             borderwidth=0,
             highlightthickness=1,
             highlightbackground=self.BORDER,
-            highlightcolor=self.ACCENT,
+            highlightcolor=self.BORDER,
+            takefocus=1,
             font=(self.font_family, size, "bold" if bold else "normal"),
         )
 
@@ -442,27 +512,50 @@ class InspectorPanel(tk.Frame):
     ) -> None:
         grid = tk.Frame(master, bg=self.BG)
         grid.pack(fill="x")
+        buttons: list[tuple[tk.Button, object, str]] = []
+
+        def paint(selected_value: object) -> None:
+            for button, value, label in buttons:
+                selected = value == selected_value
+                button.configure(
+                    bg=self.ACCENT_SOFT if selected else self.CARD,
+                    fg=self.ACCENT if selected else self.TEXT,
+                    font=(self.font_family, 9, "bold" if selected else "normal"),
+                )
+
+        def choose(choice: object) -> None:
+            command(choice)
+            paint(choice)
+
+        initial_value: object | None = None
         for index, (label, value, selected) in enumerate(options):
+            if selected:
+                initial_value = value
             button = tk.Button(
                 grid,
                 text=label,
-                command=lambda choice=value: command(choice),
+                command=lambda choice=value: choose(choice),
                 bg=self.ACCENT_SOFT if selected else self.CARD,
                 fg=self.ACCENT if selected else self.TEXT,
                 activebackground=self.ACCENT_SOFT,
                 activeforeground=self.ACCENT,
                 relief="flat",
                 borderwidth=0,
+                highlightthickness=0,
+                takefocus=0,
                 padx=8,
                 pady=7,
                 cursor="hand2",
                 font=(self.font_family, 9, "bold" if selected else "normal"),
             )
+            buttons.append((button, value, label))
             row = index // columns
             col = index % columns
             button.grid(row=row, column=col, sticky="ew", padx=(0, 6), pady=(0, 6))
         for col in range(columns):
             grid.columnconfigure(col, weight=1)
+        if initial_value is not None:
+            paint(initial_value)
 
     def _soft_button(
         self,
@@ -481,6 +574,8 @@ class InspectorPanel(tk.Frame):
             activeforeground=self.DANGER if danger else self.TEXT,
             relief="flat",
             borderwidth=0,
+            highlightthickness=0,
+            takefocus=0,
             padx=12,
             pady=8,
             cursor="hand2",
@@ -512,7 +607,6 @@ class InspectorPanel(tk.Frame):
             return
         if self.on_status_change is not None:
             self.on_status_change(node_id, status)
-            self.refresh()
             return
         self._update_node_status(node_id, status)
 
@@ -522,7 +616,7 @@ class InspectorPanel(tk.Frame):
             self._after_update()
         except PetFlowError as exc:
             messagebox.showerror("Update status failed", str(exc), parent=self)
-            self.refresh()
+            self.refresh(preserve_scroll=True)
 
     def _update_node(self, node_id: str, **changes: object) -> None:
         try:
@@ -530,7 +624,7 @@ class InspectorPanel(tk.Frame):
             self._after_update()
         except PetFlowError as exc:
             messagebox.showerror("Update node failed", str(exc), parent=self)
-            self.refresh()
+            self.refresh(preserve_scroll=True)
 
     def _update_edge(self, edge_id: str, **changes: object) -> None:
         try:
@@ -538,7 +632,7 @@ class InspectorPanel(tk.Frame):
             self._after_update()
         except PetFlowError as exc:
             messagebox.showerror("Update edge failed", str(exc), parent=self)
-            self.refresh()
+            self.refresh(preserve_scroll=True)
 
     def _apply_node_text(self, field: str) -> None:
         if self._syncing or self._node_id is None:
@@ -583,7 +677,7 @@ class InspectorPanel(tk.Frame):
             value = int(variable.get().strip() or "0")
         except ValueError:
             messagebox.showerror("Invalid number", "Please enter a whole number.", parent=self)
-            self.refresh()
+            self.refresh(preserve_scroll=True)
             return
         value = max(minimum, value)
         node = self.context.graph.get_node(node_id)
@@ -602,6 +696,7 @@ class InspectorPanel(tk.Frame):
             due = None
         else:
             return
+        self._next_due_var.set(due or "")
         self._update_node(node_id, next_due_at=due)
 
     def _apply_due(self, node_id: str) -> None:
@@ -633,6 +728,9 @@ class InspectorPanel(tk.Frame):
             action(edge_id)
 
     def _after_update(self) -> None:
-        self.refresh()
+        # Do not rebuild the whole Inspector for routine edits. Rebuilding the
+        # panel causes a visible flash and resets the exact scroll/content state.
+        # The underlying graph is already updated; controls update themselves
+        # locally, while the canvas/recommendation view refreshes via callback.
         if self.on_changed is not None:
             self.on_changed()

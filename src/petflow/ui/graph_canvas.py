@@ -215,6 +215,23 @@ class GraphCanvas(tk.Canvas):
         self.redraw()
         self._notify_selection_changed()
 
+    def clear_selection(self) -> None:
+        if self._selected_node_id is None and self._selected_edge_id is None:
+            return
+        self._selected_node_id = None
+        self._selected_edge_id = None
+        self.context.graph_service.set_current_node(None)
+        self.redraw()
+        self._notify_selection_changed()
+
+    def _start_background_pan(self, event: tk.Event) -> None:
+        self._panning = True
+        self._drag_node_id = None
+        self._pan_start_x = float(event.x)
+        self._pan_start_y = float(event.y)
+        self._pan_origin_x = self.context.graph.workspace.pan_x
+        self._pan_origin_y = self.context.graph.workspace.pan_y
+
     def edit_selected_node(self) -> None:
         if self._selected_node_id is not None:
             self._edit_node(self._selected_node_id)
@@ -569,9 +586,12 @@ class GraphCanvas(tk.Canvas):
         node_id = self._node_id_from_event(event)
         edge_id = self._edge_id_from_event(event)
         self._drag_node_id = None
+        self._panning = False
         if self._edge_mode:
             if node_id is not None:
                 self._handle_edge_mode_click(node_id)
+            else:
+                self._status_hint("Choose a node, or press Esc to cancel edge mode")
             return
         if node_id is not None:
             self.select_node(node_id)
@@ -582,9 +602,16 @@ class GraphCanvas(tk.Canvas):
                 self._drag_offset_x = graph_x - node.x
                 self._drag_offset_y = graph_y - node.y
             return
-        self.select_edge(edge_id)
+        if edge_id is not None:
+            self.select_edge(edge_id)
+            return
+        self.clear_selection()
+        self._start_background_pan(event)
 
     def _on_drag(self, event: tk.Event) -> None:
+        if self._panning:
+            self._on_pan_drag(event)
+            return
         if self._drag_node_id is None:
             return
         graph_x, graph_y = self._event_graph_position(event)
