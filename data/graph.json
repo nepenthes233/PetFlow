@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "metadata": {
+    "name": "PetFlow",
+    "description": "",
+    "schema_version": 1,
+    "created_at": null,
+    "updated_at": null,
+    "tags": []
+  },
+  "nodes": [],
+  "edges": [],
+  "pet": {
+    "current_node_id": null,
+    "state": "idle",
+    "x": 0.0,
+    "y": 0.0,
+    "mood": "neutral",
+    "speech": "No available next step.",
+    "visible": true,
+    "last_updated_at": "2026-05-25T04:35:42.712396+00:00"
+  },
+  "workspace": {
+    "current_node_id": null,
+    "selected_node_ids": [],
+    "selected_edge_ids": [],
+    "zoom": 1.0,
+    "pan_x": 0.0,
+    "pan_y": 0.0,
+    "active_panel": "graph",
+    "focus_mode": false,
+    "theme": "light"
+  },
+  "history": []
+}

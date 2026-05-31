@@ -1,0 +1,7 @@
+{
+  "api_key": "sk-cb20cc7507464dafa421073d0cc797bf",
+  "base_url": "https://api.deepseek.com",
+  "model": "deepseek-chat",
+  "wire_api": "chat_completions",
+  "mock_mode": false
+}
