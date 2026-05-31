@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 import tkinter as tk
 from typing import Callable
@@ -18,6 +19,12 @@ from petflow.ui.theme import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SavedGraphTasks:
+    name: str
+    nodes: tuple[Node, ...]
 
 
 class AgendaPanel(tk.Frame):
@@ -51,6 +58,8 @@ class AgendaPanel(tk.Frame):
         self.on_collapse = on_collapse
         self._expanded: set[date] = set()
         self._days: list[AgendaDay] = []
+        self._saved_graphs: list[SavedGraphTasks] = []
+        self._saved_by_day: dict[date, list[tuple[str, Node]]] = {}
 
         heading = tk.Frame(self, bg=self.BG)
         heading.pack(fill="x")
@@ -104,10 +113,20 @@ class AgendaPanel(tk.Frame):
         self._list.bind("<Configure>", self._sync_scroll_region)
         self._canvas.bind("<Configure>", self._resize_list)
         self._canvas.bind("<MouseWheel>", self._scroll)
+        self._canvas.bind("<Button-4>", self._scroll)
+        self._canvas.bind("<Button-5>", self._scroll)
         self._list.bind("<MouseWheel>", self._scroll)
+        self._list.bind("<Button-4>", self._scroll)
+        self._list.bind("<Button-5>", self._scroll)
 
-    def refresh(self, graph: GraphModel) -> None:
+    def refresh(
+        self,
+        graph: GraphModel,
+        saved_graphs: list[SavedGraphTasks] | None = None,
+    ) -> None:
         self._days = self.agenda_service.upcoming_days(graph)
+        self._saved_graphs = saved_graphs or []
+        self._saved_by_day = self._group_saved_graph_tasks()
         today = self._days[0].date if self._days else None
         if not self._expanded and today is not None:
             self._expanded.add(today)
@@ -118,13 +137,36 @@ class AgendaPanel(tk.Frame):
             child.destroy()
         for day in self._days:
             self._draw_day(day)
+        self._bind_scroll_to_descendants(self)
+
+    def _group_saved_graph_tasks(self) -> dict[date, list[tuple[str, Node]]]:
+        grouped: dict[date, list[tuple[str, Node]]] = {}
+        for saved_graph in self._saved_graphs:
+            graph = GraphModel(
+                nodes={
+                    f"{saved_graph.name}:{node.id}": node
+                    for node in saved_graph.nodes
+                }
+            )
+            scheduled_ids: set[str] = set()
+            for day in self.agenda_service.upcoming_days(graph):
+                for node in day.nodes:
+                    grouped.setdefault(day.date, []).append((saved_graph.name, node))
+                    scheduled_ids.add(node.id)
+            for node in saved_graph.nodes:
+                if node.id not in scheduled_ids:
+                    grouped.setdefault(date.today(), []).append(
+                        (saved_graph.name, node)
+                    )
+        return grouped
 
     def _draw_day(self, day: AgendaDay) -> None:
         open_day = day.date in self._expanded
         card = tk.Frame(self._list, bg=self.BG)
         card.pack(fill="x")
         label = self._day_label(day.date)
-        summary = str(len(day.nodes))
+        saved_nodes = self._saved_by_day.get(day.date, [])
+        summary = str(len(day.nodes) + len(saved_nodes))
         today = day.date == date.today()
         row_bg = PRIMARY_SOFT if today else self.BG
         label_fg = PRIMARY if today else TEXT_SECONDARY
@@ -161,7 +203,7 @@ class AgendaPanel(tk.Frame):
             padx=8,
             pady=8,
         ).pack(side="right")
-        if open_day and not day.nodes:
+        if open_day and not day.nodes and not saved_nodes:
             tk.Label(
                 card,
                 text="No scheduled tasks",
@@ -175,6 +217,8 @@ class AgendaPanel(tk.Frame):
         elif open_day:
             for node in day.nodes:
                 self._draw_node(card, node)
+            for graph_name, node in saved_nodes:
+                self._draw_saved_day_node(card, graph_name, node)
         tk.Frame(card, bg=self.BORDER, height=1).pack(fill="x")
 
     def _draw_node(self, card: tk.Frame, node: Node) -> None:
@@ -205,6 +249,33 @@ class AgendaPanel(tk.Frame):
             font=(self.font_family, 8),
         ).pack(fill="x", pady=(0, 5))
 
+    def _draw_saved_day_node(
+        self,
+        card: tk.Frame,
+        graph_name: str,
+        node: Node,
+    ) -> None:
+        tk.Label(
+            card,
+            text=f"P{node.priority}  {node.title}",
+            bg=self.BG,
+            fg=TEXT_SECONDARY,
+            anchor="w",
+            padx=18,
+            pady=3,
+            font=(self.font_family, 10),
+        ).pack(fill="x")
+        details = f"{graph_name}  ·  {node.type.value}  ·  {node.status.value}"
+        tk.Label(
+            card,
+            text=details,
+            bg=self.BG,
+            fg=self.MUTED,
+            anchor="w",
+            padx=18,
+            font=(self.font_family, 8),
+        ).pack(fill="x", pady=(0, 4))
+
     def _toggle(self, day: date) -> None:
         if day in self._expanded:
             self._expanded.remove(day)
@@ -225,5 +296,45 @@ class AgendaPanel(tk.Frame):
         self._canvas.itemconfigure(self._window, width=event.width)
 
     def _scroll(self, event: tk.Event) -> str:
-        self._canvas.yview_scroll(int(-event.delta / 120), "units")
+        number = getattr(event, "num", None)
+        if number == 4:
+            self._scroll_pixels(-48.0)
+        elif number == 5:
+            self._scroll_pixels(48.0)
+        else:
+            delta = getattr(event, "delta", 0)
+            if delta == 0:
+                return "break"
+            if abs(delta) >= 120:
+                pixels = -float(delta) / 120.0 * 48.0
+            else:
+                pixels = -float(delta) * 3.0
+            self._scroll_pixels(pixels)
         return "break"
+
+    def _bind_scroll_to_descendants(self, root: tk.Misc) -> None:
+        try:
+            root.bind("<MouseWheel>", self._scroll)
+            root.bind("<Button-4>", self._scroll)
+            root.bind("<Button-5>", self._scroll)
+        except tk.TclError:
+            return
+        for child in root.winfo_children():
+            self._bind_scroll_to_descendants(child)
+
+    def _scroll_pixels(self, pixels: float) -> None:
+        try:
+            bbox = self._canvas.bbox("all")
+            if bbox is None:
+                return
+            content_height = max(1.0, float(bbox[3] - bbox[1]))
+            viewport_height = max(1.0, float(self._canvas.winfo_height()))
+            scrollable_height = max(0.0, content_height - viewport_height)
+            if scrollable_height <= 0:
+                return
+            top_fraction = float(self._canvas.yview()[0])
+            top_pixel = top_fraction * scrollable_height
+            target_pixel = max(0.0, min(scrollable_height, top_pixel + pixels))
+            self._canvas.yview_moveto(target_pixel / scrollable_height)
+        except tk.TclError:
+            return

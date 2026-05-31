@@ -8,6 +8,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
 ASSETS_DIR = PROJECT_ROOT / "assets"
 DEFAULT_GRAPH_PATH = DATA_DIR / "graph.json"
+SAVE_GRAPH_DIR = DATA_DIR / "saves"
+SESSION_STATE_PATH = DATA_DIR / "session.json"
 DEFAULT_SETTINGS_PATH = DATA_DIR / "settings.json"
 
 

@@ -140,7 +140,6 @@ class GraphCanvas(tk.Canvas):
         on_focus_node_title: Callable[[str], None] | None = None,
         on_status_hint: Callable[[str], None] | None = None,
         on_create_node: Callable[[], None] | None = None,
-        on_generate_flow: Callable[[], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=APP_BG, highlightthickness=0, **kwargs)
@@ -159,7 +158,6 @@ class GraphCanvas(tk.Canvas):
         self.on_focus_node_title = on_focus_node_title
         self.on_status_hint = on_status_hint
         self.on_create_node = on_create_node
-        self.on_generate_flow = on_generate_flow
         self._node_items: dict[str, list[int]] = {}
         self._item_to_node: dict[int, str] = {}
         self._edge_items: dict[str, list[int]] = {}
@@ -530,25 +528,18 @@ class GraphCanvas(tk.Canvas):
         self.create_text(
             cx,
             y1 + 74,
-            text="Create a node or ask Companion to generate a task flow.",
+            text="Create a node to start planning.",
             anchor="center",
             fill=self._text_muted(),
             font=(self.font_family, 11),
             tags=("graph", "empty-state"),
         )
         self._draw_empty_button(
-            cx - 92,
+            cx,
             y1 + 122,
             "New Node",
             "empty-new-node",
             primary=True,
-        )
-        self._draw_empty_button(
-            cx + 92,
-            y1 + 122,
-            "Generate",
-            "empty-generate",
-            primary=False,
         )
 
     def _draw_empty_button(
@@ -585,10 +576,6 @@ class GraphCanvas(tk.Canvas):
         )
         if tag == "empty-new-node" and self.on_create_node is not None:
             self.tag_bind(tag, "<Button-1>", lambda _event: self.on_create_node())
-            self.tag_bind(tag, "<Enter>", lambda _event: self.configure(cursor="hand2"))
-            self.tag_bind(tag, "<Leave>", lambda _event: self.configure(cursor=""))
-        if tag == "empty-generate" and self.on_generate_flow is not None:
-            self.tag_bind(tag, "<Button-1>", lambda _event: self.on_generate_flow())
             self.tag_bind(tag, "<Enter>", lambda _event: self.configure(cursor="hand2"))
             self.tag_bind(tag, "<Leave>", lambda _event: self.configure(cursor=""))
 

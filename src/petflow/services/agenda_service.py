@@ -52,6 +52,8 @@ class AgendaService:
     @staticmethod
     def _scheduled_date(node: Node, now: datetime) -> date | None:
         if not node.next_due_at:
+            if node.repeat_type != RepeatType.NONE:
+                return now.date()
             return None
         value = node.next_due_at.strip()
         if len(value) == 10:
@@ -78,6 +80,17 @@ class AgendaService:
         end = start + timedelta(days=days)
         occurrence = due_date
         results: list[date] = []
+        if occurrence < start:
+            if node.repeat_type == RepeatType.NONE:
+                occurrence = start
+            else:
+                while occurrence < start:
+                    next_occurrence = self._next_occurrence(
+                        occurrence, node.repeat_type, node.repeat_interval
+                    )
+                    if next_occurrence <= occurrence:
+                        return []
+                    occurrence = next_occurrence
         while occurrence < end:
             if occurrence >= start:
                 results.append(occurrence)

@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from petflow.app import AppContext
+from petflow.domain.graph import GraphModel
 from petflow.domain.enums import NodeStatus, NodeType, RepeatType
 
 
@@ -73,6 +74,56 @@ class AgendaServiceTest(unittest.TestCase):
             day.date.isoformat() for day in days if routine in day.nodes
         ]
         self.assertEqual(visible_dates, ["2026-05-26", "2026-05-28", "2026-05-30"])
+
+    def test_repeating_node_without_due_date_starts_today(self) -> None:
+        context = AppContext.create()
+        now = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+        routine = context.graph_service.create_node(
+            title="Weekly cleanup",
+            node_type=NodeType.ROUTINE,
+            repeat_type=RepeatType.WEEKLY,
+        )
+
+        days = context.agenda_service.upcoming_days(context.graph, now=now)
+
+        self.assertIn(routine, days[0].nodes)
+
+    def test_legacy_nested_routine_fields_are_scheduled(self) -> None:
+        now = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+        graph = GraphModel.from_dict(
+            {
+                "nodes": [
+                    {
+                        "id": "routine_1",
+                        "type": "routine",
+                        "title": "Legacy routine",
+                        "routine": {
+                            "recurrence": "daily",
+                            "interval_days": 2,
+                            "next_due_at": "2026-05-23",
+                            "streak": 3,
+                        },
+                    }
+                ],
+                "edges": [],
+            }
+        )
+        routine = graph.get_node("routine_1")
+        assert routine is not None
+
+        days = AppContext.create().agenda_service.upcoming_days(graph, now=now)
+
+        self.assertEqual(routine.repeat_type, RepeatType.DAILY)
+        self.assertEqual(routine.repeat_interval, 2)
+        self.assertEqual(routine.next_due_at, "2026-05-23")
+        self.assertEqual(routine.streak, 3)
+        visible_dates = [
+            day.date.isoformat() for day in days if routine in day.nodes
+        ]
+        self.assertEqual(
+            visible_dates,
+            ["2026-05-25", "2026-05-27", "2026-05-29", "2026-05-31"],
+        )
 
 
 if __name__ == "__main__":

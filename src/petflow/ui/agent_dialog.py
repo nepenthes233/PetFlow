@@ -33,7 +33,12 @@ from petflow.ui.theme import (
 
 
 class AgentDialog(tk.Toplevel):
-    def __init__(self, master: tk.Misc, context: AppContext, node_id: str | None = None) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        context: AppContext,
+        node_id: str | None = None,
+    ) -> None:
         super().__init__(master)
         self.context = context
         self.node_id = node_id
@@ -45,7 +50,7 @@ class AgentDialog(tk.Toplevel):
         self._text = DARK_TEXT if self._dark_mode else TEXT_PRIMARY
         self._secondary = DARK_TEXT_SECONDARY if self._dark_mode else TEXT_SECONDARY
         self._muted = DARK_MUTED if self._dark_mode else TEXT_MUTED
-        self.title("Generate Mission Map")
+        self.title("Agent Planner")
         self.configure(bg=self._bg)
         self.resizable(True, True)
         self.geometry("820x680")
@@ -63,6 +68,10 @@ class AgentDialog(tk.Toplevel):
         self._validator = AgentProposalValidator()
         self._proposal: dict[str, object] | None = None
         self.created_node_ids: list[str] = []
+        self.deleted_node_ids: list[str] = []
+        self.updated_node_ids: list[str] = []
+        self.added_edge_ids: list[str] = []
+        self.layout_requested = False
 
         self._build_ui()
         self.transient(master)
@@ -89,14 +98,17 @@ class AgentDialog(tk.Toplevel):
 
         tk.Label(
             body,
-            text="Generate Mission Map",
+            text="Agent Planner",
             bg=self._bg,
             fg=self._text,
             font=(self.font_family, 18, "bold"),
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             body,
-            text="Describe a pet-care goal. Companion will turn it into a workflow map.",
+            text=(
+                "Describe a pet-care goal. Companion will turn it into "
+                "concrete graph changes."
+            ),
             bg=self._bg,
             fg=self._muted,
             font=(self.font_family, 10),
@@ -144,7 +156,7 @@ class AgentDialog(tk.Toplevel):
 
         tk.Label(
             input_card,
-            text="Mission goal",
+            text="Goal",
             bg=self._surface,
             fg=self._secondary,
             font=(self.font_family, 10, "bold"),
@@ -171,7 +183,7 @@ class AgentDialog(tk.Toplevel):
         preview_shell.rowconfigure(3, weight=2)
         tk.Label(
             preview_shell,
-            text="Mission preview",
+            text="Plan preview",
             bg=self._surface,
             fg=self._secondary,
             font=(self.font_family, 10, "bold"),
@@ -230,7 +242,7 @@ class AgentDialog(tk.Toplevel):
         ).pack(side="left", padx=(0, 8))
         TextButton(
             actions,
-            "Apply Mission",
+            "Apply Plan",
             self._apply,
             self.font_family,
             variant="primary",
@@ -274,7 +286,7 @@ class AgentDialog(tk.Toplevel):
         try:
             proposal = self._build_proposal()
             validated = self._validator.validate(proposal)
-            self._proposal = proposal
+            self._proposal = validated
             self._set_preview(self._format_summary(validated))
             self._set_raw_preview(json.dumps(proposal, ensure_ascii=False, indent=2))
             self._preview_var.set("")
@@ -290,7 +302,10 @@ class AgentDialog(tk.Toplevel):
             node = self._resolve_node()
             prompt = self._prompts.build_node_split_prompt(self.context.graph, node)
         else:
-            prompt = self._prompts.build_graph_generation_prompt(self._goal_var.get().strip())
+            prompt = self._prompts.build_companion_planning_prompt(
+                self._goal_var.get().strip(),
+                self.context.graph,
+            )
         return self._client.complete_json(prompt)
 
     def _initial_input_text(self) -> str:
@@ -312,6 +327,10 @@ class AgentDialog(tk.Toplevel):
             else:
                 created = self._executor.apply_graph_proposal(proposal)
             self.created_node_ids = [node.id for node in created]
+            self.deleted_node_ids = list(self._executor.last_deleted_node_ids)
+            self.updated_node_ids = list(self._executor.last_updated_node_ids)
+            self.added_edge_ids = list(self._executor.last_added_edge_ids)
+            self.layout_requested = self._executor.last_layout_requested
             self.result = proposal
             self.destroy()
         except PetFlowError as exc:
@@ -335,15 +354,30 @@ class AgentDialog(tk.Toplevel):
     def _format_summary(proposal: dict[str, object]) -> str:
         nodes = proposal.get("nodes", [])
         edges = proposal.get("edges", [])
+        update_nodes = proposal.get("update_nodes", [])
+        add_edges = proposal.get("add_edges", [])
+        delete_node_ids = proposal.get("delete_node_ids", [])
+        delete_all_nodes = bool(proposal.get("delete_all_nodes", False))
+        delete_query = str(proposal.get("delete_query", "")).strip()
+        layout = proposal.get("layout", {})
+        layout_enabled = isinstance(layout, dict) and bool(layout.get("enabled"))
         lines = [
             f"Nodes: {len(nodes)}",
         ]
         if isinstance(nodes, list):
             for node in nodes:
                 if isinstance(node, dict):
+                    extras = []
+                    if node.get("next_due_at"):
+                        extras.append(f"due {node.get('next_due_at')}")
+                    repeat_type = node.get("repeat_type")
+                    if repeat_type and repeat_type != "none":
+                        extras.append(f"repeats {repeat_type}")
+                    suffix = f" · {', '.join(extras)}" if extras else ""
                     lines.append(
                         f"- {node.get('title', '')} [{node.get('type', 'task')}] "
-                        f"P{node.get('priority', 3)} {node.get('estimated_minutes', 30)}m"
+                        f"P{node.get('priority', 3)} "
+                        f"{node.get('estimated_minutes', 30)}m{suffix}"
                     )
         lines.append("")
         lines.append(f"Edges: {len(edges)}")
@@ -352,8 +386,38 @@ class AgentDialog(tk.Toplevel):
                 if isinstance(edge, dict):
                     label = edge.get("label") or edge.get("type", "dependency")
                     lines.append(
-                        f"- {edge.get('source', '')} -> {edge.get('target', '')} ({label})"
+                        f"- {edge.get('source', '')} -> "
+                        f"{edge.get('target', '')} ({label})"
                     )
+        lines.append("")
+        lines.append(f"Update nodes: {len(update_nodes)}")
+        if isinstance(update_nodes, list):
+            for update in update_nodes:
+                if isinstance(update, dict):
+                    target = update.get("node_id") or update.get("query")
+                    changes = update.get("changes", {})
+                    fields = ", ".join(changes) if isinstance(changes, dict) else ""
+                    lines.append(f"- {target}: {fields}")
+        lines.append("")
+        lines.append(f"Add edges: {len(add_edges)}")
+        if isinstance(add_edges, list):
+            for edge in add_edges:
+                if isinstance(edge, dict):
+                    source = edge.get("source") or edge.get("source_query")
+                    target = edge.get("target") or edge.get("target_query")
+                    label = edge.get("label") or edge.get("type", "dependency")
+                    lines.append(f"- {source} -> {target} ({label})")
+        lines.append("")
+        lines.append(f"Delete nodes: {len(delete_node_ids)}")
+        if delete_all_nodes:
+            lines.append("- all nodes")
+        if delete_query:
+            lines.append(f"- matching: {delete_query}")
+        if isinstance(delete_node_ids, list):
+            for node_id in delete_node_ids:
+                lines.append(f"- {node_id}")
+        lines.append("")
+        lines.append(f"Layout: {'yes' if layout_enabled else 'no'}")
         return "\n".join(lines)
 
     def _set_raw_preview(self, content: str) -> None:

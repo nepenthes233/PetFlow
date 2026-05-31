@@ -13,4 +13,5 @@ build/
 *.log
 data/settings.json
 data/*.json
+data/saves/
 !data/.gitkeep

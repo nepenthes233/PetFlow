@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -515,7 +516,85 @@ class AgentClient:
                     "me to create task nodes and relationships."
                 )
             }
-        if "拆分" in prompt or "split" in prompt.lower():
+        lowered = prompt.lower()
+        action_text = lowered
+        for marker in ("user message:", "user goal:"):
+            if marker in lowered:
+                action_text = lowered.rsplit(marker, 1)[-1]
+                break
+        if any(
+            phrase in action_text
+            for phrase in (
+                "delete all",
+                "remove all",
+                "clear graph",
+                "clear canvas",
+                "删除全部",
+                "全部删除",
+                "清空",
+            )
+        ):
+            return {
+                "nodes": [],
+                "edges": [],
+                "delete_node_ids": [],
+                "delete_all_nodes": True,
+                "layout": {"enabled": False, "strategy": "flow"},
+            }
+        existing_ids = re.findall(r"^- ([^:\n]+):", prompt, flags=re.MULTILINE)
+        if any(
+            word in action_text for word in ("complete", "done", "finish", "完成")
+        ):
+            return {
+                "nodes": [],
+                "edges": [],
+                "update_nodes": [
+                    {
+                        "id": existing_ids[0] if existing_ids else "",
+                        "query": "" if existing_ids else action_text,
+                        "status": "done",
+                    }
+                ],
+            }
+        if any(word in action_text for word in ("connect", "link", "depend", "连接")):
+            return {
+                "nodes": [],
+                "edges": [],
+                "add_edges": [
+                    {
+                        "source": existing_ids[0] if len(existing_ids) >= 1 else "",
+                        "target": existing_ids[1] if len(existing_ids) >= 2 else "",
+                        "source_query": "" if len(existing_ids) >= 1 else action_text,
+                        "target_query": "" if len(existing_ids) >= 2 else action_text,
+                        "type": "dependency",
+                    }
+                ],
+            }
+        if any(
+            word in action_text for word in ("arrange", "organize", "layout", "整理")
+        ):
+            return {
+                "nodes": [],
+                "edges": [],
+                "delete_node_ids": [],
+                "layout": {"enabled": True, "strategy": "flow"},
+            }
+        if any(word in action_text for word in ("delete", "remove", "删除")):
+            delete_query = re.sub(
+                r"\b(delete|remove|node|task)\b|删除|节点|任务",
+                " ",
+                action_text,
+            ).strip()
+            if not delete_query:
+                delete_query = existing_ids[0] if existing_ids else ""
+            return {
+                "nodes": [],
+                "edges": [],
+                "delete_node_ids": [],
+                "delete_query": delete_query,
+                "layout": {"enabled": True, "strategy": "flow"},
+            }
+        if "拆分" in prompt or "split" in lowered:
             return {
                 "nodes": [
                     {
@@ -559,14 +638,32 @@ class AgentClient:
                     },
                 ],
             }
+        due_match = re.search(r"\d{4}-\d{2}-\d{2}", action_text)
+        due_value = due_match.group(0) if due_match else None
+        routine_requested = any(
+            word in action_text
+            for word in (
+                "routine",
+                "repeat",
+                "daily",
+                "weekly",
+                "monthly",
+                "每天",
+                "每周",
+            )
+        )
+        first_title = "Set up the routine" if routine_requested else "Define the goal"
         return {
             "nodes": [
                 {
                     "id": "goal_1",
-                    "type": "task",
-                    "title": "Define the goal",
+                    "type": "routine" if routine_requested else "task",
+                    "title": first_title,
                     "priority": 5,
                     "estimated_minutes": 30,
+                    "repeat_type": "daily" if routine_requested else "none",
+                    "repeat_interval": 1,
+                    "next_due_at": due_value,
                     "x": 120,
                     "y": 160,
                 },

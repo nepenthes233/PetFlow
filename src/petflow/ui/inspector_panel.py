@@ -64,6 +64,7 @@ class InspectorPanel(tk.Frame):
         self._resource_path_var = tk.StringVar(value="")
         self._repeat_interval_var = tk.StringVar(value="")
         self._next_due_var = tk.StringVar(value="")
+        self._save_feedback_var = tk.StringVar(value="")
         self._syncing = False
         self._active_scroll_canvas: tk.Canvas | None = None
         self._last_scroll_fraction = 0.0
@@ -144,6 +145,7 @@ class InspectorPanel(tk.Frame):
         self._resource_path_var.set(node.resource_path)
         self._repeat_interval_var.set(str(node.repeat_interval))
         self._next_due_var.set(node.next_due_at[:10] if node.next_due_at else "")
+        self._save_feedback_var.set("")
         self._syncing = False
 
         outer = tk.Frame(self, bg=self.BG)
@@ -180,6 +182,28 @@ class InspectorPanel(tk.Frame):
         self._title_entry.pack(fill="x", pady=(4, 14))
         self._title_entry.bind("<Return>", lambda _event: self._apply_node_text("title"))
         self._title_entry.bind("<FocusOut>", lambda _event: self._apply_node_text("title"))
+
+        top_actions = tk.Frame(body, bg=self.BG)
+        top_actions.pack(fill="x", pady=(0, 8))
+        self._soft_button(
+            top_actions,
+            "Save Node",
+            command=lambda: self._save_node_form(node.id),
+            primary=True,
+        ).pack(side="left")
+        self._soft_button(
+            top_actions,
+            "Delete Node",
+            command=lambda: self._call_node_action(self.on_delete_node, node.id),
+            danger=True,
+        ).pack(side="right")
+        tk.Label(
+            body,
+            textvariable=self._save_feedback_var,
+            bg=self.BG,
+            fg=self.MUTED,
+            font=(self.font_family, 9),
+        ).pack(anchor="w", pady=(0, 4))
 
         self._section(body, "Type")
         self._segmented(
@@ -312,7 +336,7 @@ class InspectorPanel(tk.Frame):
         path.bind("<Return>", lambda _event: self._apply_node_text("resource_path"))
         path.bind("<FocusOut>", lambda _event: self._apply_node_text("resource_path"))
 
-        self._section(body, "Danger Zone")
+        self._section(body, "More")
         actions = tk.Frame(body, bg=self.BG)
         actions.pack(fill="x", pady=(0, 20))
         self._soft_button(
@@ -320,12 +344,6 @@ class InspectorPanel(tk.Frame):
             "Advanced...",
             command=lambda: self._call_node_action(self.on_advanced_node, node.id),
         ).pack(side="left")
-        self._soft_button(
-            actions,
-            "Delete Node",
-            command=lambda: self._call_node_action(self.on_delete_node, node.id),
-            danger=True,
-        ).pack(side="right")
 
         self._bind_scroll_to_descendants(outer, canvas)
         self._restore_scroll_position(canvas)
@@ -440,21 +458,36 @@ class InspectorPanel(tk.Frame):
             self._active_scroll_canvas = canvas
             number = getattr(event, "num", None)
             if number == 4:
-                units = -3
+                self._scroll_canvas_pixels(canvas, -48.0)
             elif number == 5:
-                units = 3
+                self._scroll_canvas_pixels(canvas, 48.0)
             else:
                 delta = getattr(event, "delta", 0)
                 if delta == 0:
                     return "break"
-                units = int(-delta / 120)
-                if units == 0:
-                    units = -1 if delta > 0 else 1
-            canvas.yview_scroll(units, "units")
+                if abs(delta) >= 120:
+                    pixels = -float(delta) / 120.0 * 48.0
+                else:
+                    pixels = -float(delta) * 3.0
+                self._scroll_canvas_pixels(canvas, pixels)
             self._last_scroll_fraction = float(canvas.yview()[0])
         except tk.TclError:
             pass
         return "break"
+
+    def _scroll_canvas_pixels(self, canvas: tk.Canvas, pixels: float) -> None:
+        bbox = canvas.bbox("all")
+        if bbox is None:
+            return
+        content_height = max(1.0, float(bbox[3] - bbox[1]))
+        viewport_height = max(1.0, float(canvas.winfo_height()))
+        scrollable_height = max(0.0, content_height - viewport_height)
+        if scrollable_height <= 0:
+            return
+        top_fraction = float(canvas.yview()[0])
+        top_pixel = top_fraction * scrollable_height
+        target_pixel = max(0.0, min(scrollable_height, top_pixel + pixels))
+        canvas.yview_moveto(target_pixel / scrollable_height)
 
     def _eyebrow(self, master: tk.Misc, text: str) -> None:
         tk.Label(
@@ -567,15 +600,20 @@ class InspectorPanel(tk.Frame):
         text: str,
         command: Callable[[], None],
         danger: bool = False,
+        primary: bool = False,
     ) -> tk.Button:
+        bg = self.ACCENT if primary else self.DANGER_SOFT if danger else self.CARD_2
+        fg = "#FFFFFF" if primary else self.DANGER if danger else self.TEXT
+        active_bg = self.ACCENT if primary else self.DANGER_SOFT if danger else self.CARD
+        active_fg = "#FFFFFF" if primary else self.DANGER if danger else self.TEXT
         return tk.Button(
             master,
             text=text,
             command=command,
-            bg=self.DANGER_SOFT if danger else self.CARD_2,
-            fg=self.DANGER if danger else self.TEXT,
-            activebackground=self.DANGER_SOFT if danger else self.CARD,
-            activeforeground=self.DANGER if danger else self.TEXT,
+            bg=bg,
+            fg=fg,
+            activebackground=active_bg,
+            activeforeground=active_fg,
             relief="flat",
             borderwidth=0,
             highlightthickness=0,
@@ -583,7 +621,7 @@ class InspectorPanel(tk.Frame):
             padx=12,
             pady=8,
             cursor="hand2",
-            font=(self.font_family, 9, "bold" if danger else "normal"),
+            font=(self.font_family, 9, "bold" if danger or primary else "normal"),
         )
 
     def _hint_card(self, master: tk.Misc, title: str, text: str) -> None:
@@ -710,6 +748,63 @@ class InspectorPanel(tk.Frame):
         node = self.context.graph.get_node(node_id)
         if node is not None and node.next_due_at != value:
             self._update_node(node_id, next_due_at=value)
+
+    def _save_node_form(self, node_id: str) -> None:
+        if self._syncing:
+            return
+        node = self.context.graph.get_node(node_id)
+        if node is None:
+            self.refresh(preserve_scroll=True)
+            return
+
+        try:
+            estimated_minutes = int(self._estimated_var.get().strip() or "0")
+            actual_minutes = int(self._actual_var.get().strip() or "0")
+            repeat_interval = int(self._repeat_interval_var.get().strip() or "1")
+        except ValueError:
+            messagebox.showerror(
+                "Invalid number",
+                "Please enter whole numbers for time and repeat interval.",
+                parent=self,
+            )
+            self.refresh(preserve_scroll=True)
+            return
+
+        description = ""
+        if self._description_text is not None:
+            description = self._description_text.get("1.0", "end-1c").strip()
+        tags = [part.strip() for part in self._tags_var.get().split(",") if part.strip()]
+
+        try:
+            self.context.graph_service.update_node_detail(
+                node_id,
+                title=self._title_var.get().strip(),
+                description=description,
+                node_type=node.type,
+                status=node.status,
+                priority=node.priority,
+                estimated_minutes=estimated_minutes,
+                actual_minutes=actual_minutes,
+                tags=tags,
+                resource_type=node.resource_type,
+                resource_path=self._resource_path_var.get().strip(),
+                checklist=node.checklist,
+                repeat_type=node.repeat_type,
+                repeat_interval=repeat_interval,
+                next_due_at=self._next_due_var.get().strip(),
+                streak=node.streak,
+            )
+        except PetFlowError as exc:
+            messagebox.showerror("Save node failed", str(exc), parent=self)
+            self.refresh(preserve_scroll=True)
+            return
+
+        self._save_feedback_var.set("Saved")
+        self.after(1800, self._clear_save_feedback)
+        self._after_update()
+
+    def _clear_save_feedback(self) -> None:
+        self._save_feedback_var.set("")
 
     def _apply_edge_label(self, edge_id: str) -> None:
         if self._syncing:

@@ -102,7 +102,7 @@ class PetAssistantPanel(tk.Frame):
             highlightbackground=BORDER,
         )
         self._history.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 12))
-        self.add_message("Companion", "Tell me a goal and I will build a mission map.")
+        self.add_message("Companion", "Tell me a goal and I will build a task flow.")
 
         composer = tk.Frame(self, bg=SURFACE)
         composer.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 16))

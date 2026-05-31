@@ -99,6 +99,100 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertEqual(node["repeat_interval"], 2)
         self.assertEqual(node["next_due_at"], "2026-05-27")
 
+    def test_validator_normalizes_deadline_and_nested_routine_fields(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "title": "Feed cats",
+                        "deadline": "2026-06-02",
+                        "routine": {
+                            "recurrence": "daily",
+                            "interval_days": 1,
+                            "streak": 2,
+                        },
+                        "tags": "home, pets, home",
+                        "checklist": [{"item": "Prepare food"}, "Refill water"],
+                    }
+                ],
+                "edges": [],
+            }
+        )
+
+        node = proposal["nodes"][0]
+        self.assertEqual(node["type"], "routine")
+        self.assertEqual(node["repeat_type"], "daily")
+        self.assertEqual(node["repeat_interval"], 1)
+        self.assertEqual(node["next_due_at"], "2026-06-02")
+        self.assertEqual(node["streak"], 2)
+        self.assertEqual(node["tags"], ["home", "pets"])
+        self.assertEqual(node["checklist"], ["Prepare food", "Refill water"])
+
+    def test_validator_accepts_delete_and_layout_actions(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [],
+                "edges": [],
+                "delete_nodes": [{"id": "node_1"}, "node_2", "node_1"],
+                "delete_all_nodes": "false",
+                "layout": {"enabled": True, "strategy": "grid"},
+            }
+        )
+
+        self.assertEqual(proposal["delete_node_ids"], ["node_1", "node_2"])
+        self.assertFalse(proposal["delete_all_nodes"])
+        self.assertEqual(proposal["layout"], {"enabled": True, "strategy": "grid"})
+
+    def test_validator_accepts_delete_all_action(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [],
+                "edges": [],
+                "clear_graph": True,
+                "delete_query": "feed cats",
+            }
+        )
+
+        self.assertTrue(proposal["delete_all_nodes"])
+        self.assertEqual(proposal["delete_query"], "feed cats")
+
+    def test_validator_accepts_update_and_add_edge_actions(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [],
+                "edges": [],
+                "update_nodes": [
+                    {
+                        "query": "feed cats",
+                        "status": "done",
+                        "deadline": "2026-06-04",
+                        "routine": {"recurrence": "weekly", "interval_days": 2},
+                        "name": "Feed cats weekly",
+                    }
+                ],
+                "add_edges": [
+                    {
+                        "source_query": "buy food",
+                        "target_query": "feed cats",
+                        "type": "dependency",
+                        "label": "then",
+                    }
+                ],
+            }
+        )
+
+        update = proposal["update_nodes"][0]
+        self.assertEqual(update["query"], "feed cats")
+        self.assertEqual(update["changes"]["title"], "Feed cats weekly")
+        self.assertEqual(update["changes"]["status"].value, "done")
+        self.assertEqual(update["changes"]["next_due_at"], "2026-06-04")
+        self.assertEqual(update["changes"]["repeat_type"].value, "weekly")
+        self.assertEqual(update["changes"]["repeat_interval"], 2)
+        edge = proposal["add_edges"][0]
+        self.assertEqual(edge["source_query"], "buy food")
+        self.assertEqual(edge["target_query"], "feed cats")
+
     def test_validator_normalizes_common_model_status_and_priority_aliases(self) -> None:
         proposal = AgentProposalValidator().validate(
             {
@@ -634,7 +728,10 @@ class AgentWorkflowTest(unittest.TestCase):
 
         self.assertEqual(len(context.graph.nodes), 2)
         self.assertEqual(len(context.graph.edges), 1)
-        self.assertEqual(next(iter(context.graph.edges.values())).type, EdgeType.DEPENDENCY)
+        self.assertEqual(
+            next(iter(context.graph.edges.values())).type,
+            EdgeType.DEPENDENCY,
+        )
         self.assertEqual(next(iter(context.graph.nodes.values())).type, NodeType.TASK)
 
     def test_executor_links_split_nodes_to_parent(self) -> None:
@@ -679,6 +776,185 @@ class AgentWorkflowTest(unittest.TestCase):
         self.assertEqual(created[0].repeat_type, RepeatType.WEEKLY)
         self.assertEqual(created[0].repeat_interval, 2)
         self.assertEqual(created[0].next_due_at, "2026-05-27")
+
+    def test_executor_applies_agent_node_detail_fields(self) -> None:
+        context = AppContext.create()
+        created = AgentExecutor(context.graph_service).apply_graph_proposal(
+            {
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "title": "Morning care",
+                        "deadline": "2026-06-03",
+                        "routine": {"recurrence": "daily", "interval_days": 1},
+                        "actual_minutes": 5,
+                        "tags": ["pet", "morning"],
+                        "resource_type": "text",
+                        "resource_path": "feeding notes",
+                        "checklist": ["food", "water"],
+                    }
+                ],
+                "edges": [],
+            }
+        )
+
+        node = created[0]
+        self.assertEqual(node.type, NodeType.ROUTINE)
+        self.assertEqual(node.next_due_at, "2026-06-03")
+        self.assertEqual(node.repeat_type, RepeatType.DAILY)
+        self.assertEqual(node.actual_minutes, 5)
+        self.assertEqual(node.tags, ["pet", "morning"])
+        self.assertEqual(node.resource_type.value, "text")
+        self.assertEqual(node.resource_path, "feeding notes")
+        self.assertEqual([item.text for item in node.checklist], ["food", "water"])
+
+    def test_executor_deletes_nodes_from_agent_proposal(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="Keep")
+        second = context.graph_service.create_node(title="Delete")
+        context.graph_service.create_edge(first.id, second.id, EdgeType.DEPENDENCY)
+        executor = AgentExecutor(context.graph_service)
+
+        created = executor.apply_graph_proposal(
+            {
+                "nodes": [],
+                "edges": [],
+                "delete_node_ids": [second.id],
+            }
+        )
+
+        self.assertEqual(created, [])
+        self.assertIn(first.id, context.graph.nodes)
+        self.assertNotIn(second.id, context.graph.nodes)
+        self.assertFalse(context.graph.edges)
+        self.assertEqual(executor.last_deleted_node_ids, [second.id])
+
+    def test_executor_deletes_all_nodes_from_agent_proposal(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="First")
+        second = context.graph_service.create_node(title="Second")
+        context.graph_service.create_edge(first.id, second.id, EdgeType.DEPENDENCY)
+        context.graph_service.set_current_node(first.id)
+        executor = AgentExecutor(context.graph_service)
+
+        executor.apply_graph_proposal(
+            {
+                "nodes": [],
+                "edges": [],
+                "delete_all_nodes": True,
+            }
+        )
+
+        self.assertFalse(context.graph.nodes)
+        self.assertFalse(context.graph.edges)
+        self.assertEqual(set(executor.last_deleted_node_ids), {first.id, second.id})
+        self.assertIsNone(context.graph.workspace.current_node_id)
+
+    def test_executor_deletes_nodes_by_query(self) -> None:
+        context = AppContext.create()
+        keep = context.graph_service.create_node(title="Buy food")
+        delete = context.graph_service.create_node(
+            title="Feed cats",
+            description="Morning pet routine",
+            tags=["pets"],
+        )
+        executor = AgentExecutor(context.graph_service)
+
+        executor.apply_graph_proposal(
+            {
+                "nodes": [],
+                "edges": [],
+                "delete_query": "cats pets",
+            }
+        )
+
+        self.assertIn(keep.id, context.graph.nodes)
+        self.assertNotIn(delete.id, context.graph.nodes)
+        self.assertEqual(executor.last_deleted_node_ids, [delete.id])
+
+    def test_executor_reports_delete_query_without_matches(self) -> None:
+        context = AppContext.create()
+        context.graph_service.create_node(title="Keep")
+
+        with self.assertRaises(GraphValidationError):
+            AgentExecutor(context.graph_service).apply_graph_proposal(
+                {
+                    "nodes": [],
+                    "edges": [],
+                    "delete_query": "missing target",
+                }
+            )
+
+    def test_executor_updates_nodes_by_query(self) -> None:
+        context = AppContext.create()
+        node = context.graph_service.create_node(title="Feed cats")
+
+        AgentExecutor(context.graph_service).apply_graph_proposal(
+            {
+                "nodes": [],
+                "edges": [],
+                "update_nodes": [
+                    {
+                        "query": "feed cats",
+                        "status": "doing",
+                        "deadline": "2026-06-04",
+                        "name": "Feed cats weekly",
+                        "routine": {"recurrence": "weekly", "interval_days": 2},
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(node.title, "Feed cats weekly")
+        self.assertEqual(node.status.value, "doing")
+        self.assertEqual(node.next_due_at, "2026-06-04")
+        self.assertEqual(node.repeat_type, RepeatType.WEEKLY)
+        self.assertEqual(node.repeat_interval, 2)
+
+    def test_executor_adds_edges_by_query(self) -> None:
+        context = AppContext.create()
+        source = context.graph_service.create_node(title="Buy food")
+        target = context.graph_service.create_node(title="Feed cats")
+        executor = AgentExecutor(context.graph_service)
+
+        executor.apply_graph_proposal(
+            {
+                "nodes": [],
+                "edges": [],
+                "add_edges": [
+                    {
+                        "source_query": "buy food",
+                        "target_query": "feed cats",
+                        "type": "dependency",
+                        "label": "then",
+                    }
+                ],
+            }
+        )
+
+        edge = next(iter(context.graph.edges.values()))
+        self.assertEqual(edge.source, source.id)
+        self.assertEqual(edge.target, target.id)
+        self.assertEqual(edge.label, "then")
+        self.assertEqual(executor.last_added_edge_ids, [edge.id])
+
+    def test_executor_applies_requested_layout(self) -> None:
+        context = AppContext.create()
+        first = context.graph_service.create_node(title="First", x=900, y=900)
+        second = context.graph_service.create_node(title="Second", x=900, y=900)
+        executor = AgentExecutor(context.graph_service)
+
+        executor.apply_graph_proposal(
+            {
+                "nodes": [],
+                "edges": [],
+                "layout": {"enabled": True},
+            }
+        )
+
+        self.assertTrue(executor.last_layout_requested)
+        self.assertEqual((first.x, first.y), (120.0, 120.0))
+        self.assertGreater(second.x, first.x)
 
 
 if __name__ == "__main__":

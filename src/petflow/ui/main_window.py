@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+import json
 from queue import Empty, Queue
+from pathlib import Path
+import random
 from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -12,13 +15,19 @@ from petflow.agent.agent_client import AgentClient
 from petflow.agent.agent_executor import AgentExecutor
 from petflow.agent.prompts import PromptBuilder
 from petflow.app.app_context import AppContext
-from petflow.config import ASSETS_DIR, DEFAULT_GRAPH_PATH, AppConfig
+from petflow.config import (
+    ASSETS_DIR,
+    DEFAULT_GRAPH_PATH,
+    SAVE_GRAPH_DIR,
+    SESSION_STATE_PATH,
+    AppConfig,
+)
 from petflow.domain.enums import NodeStatus, NodeType, PetStateType
 from petflow.domain.exceptions import PetFlowError
 from petflow.system.clipboard_watcher import ClipboardWatcher
 from petflow.system.focus_monitor import FocusMonitor
 from petflow.ui.agent_dialog import AgentDialog
-from petflow.ui.agenda_panel import AgendaPanel
+from petflow.ui.agenda_panel import AgendaPanel, SavedGraphTasks
 from petflow.ui.inspector_panel import InspectorPanel
 from petflow.ui.graph_canvas import GraphCanvas
 from petflow.ui.icon_button import IconButton
@@ -49,7 +58,14 @@ class MainWindow:
     def __init__(self) -> None:
         self.config = AppConfig()
         self.context = AppContext.create()
-        self.graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
+        self.current_graph_path: Path | None = self._initial_graph_path()
+        try:
+            self.graph = self.context.storage_service.load_graph(
+                self.current_graph_path
+            )
+        except PetFlowError:
+            self.current_graph_path = DEFAULT_GRAPH_PATH
+            self.graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
         self.context = AppContext.create(self.graph)
         self.clipboard_watcher = ClipboardWatcher()
         self.focus_monitor = FocusMonitor()
@@ -93,6 +109,7 @@ class MainWindow:
         self.root.title(self.config.app_name)
         self.root.geometry(f"{self.config.window_width}x{self.config.window_height}")
         self.root.minsize(self.config.min_width, self.config.min_height)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
 
@@ -148,9 +165,7 @@ class MainWindow:
         for icon, tooltip, command in (
             ("save", "Save graph", self.save_graph),
             ("load", "Load graph", self.load_graph),
-            ("sample", "Load sample graph", self.load_sample_graph),
             ("recommend", "Recommend next task", self.recommend_next),
-            ("agent", "Generate Mission Map", self.open_agent_dialog),
         ):
             self._icon_button(tools, icon, tooltip, command).pack(side="left", padx=(0, 4))
 
@@ -212,7 +227,7 @@ class MainWindow:
         banner.grid(row=1, column=0, sticky="ew")
         banner.columnconfigure(0, weight=1)
         self.recommendation_var = tk.StringVar(value="Suggested next checkpoint: No checkpoint available")
-        self.recommendation_detail_var = tk.StringVar(value="Load demo or generate a mission map to begin.")
+        self.recommendation_detail_var = tk.StringVar(value="Create a node to begin.")
         tk.Label(
             banner,
             textvariable=self.recommendation_var,
@@ -314,13 +329,15 @@ class MainWindow:
             on_focus_node_title=self._focus_inspector_title,
             on_status_hint=self._set_status,
             on_create_node=self.create_node,
-            on_generate_flow=self.open_agent_dialog,
         )
 
         self._build_right_panel()
         self._rebuild_workspace_panes()
 
-        self.agenda_panel.refresh(self.context.graph)
+        self.agenda_panel.refresh(
+            self.context.graph,
+            saved_graphs=self._saved_graph_task_groups(),
+        )
         self._update_recommendation_label()
         self._render_pet()
         self.root.bind("<Control-0>", lambda _event: self.fit_view())
@@ -789,18 +806,268 @@ class MainWindow:
     def edit_selected_edge(self) -> None:
         self.canvas.edit_selected_edge()
 
-    def save_graph(self) -> None:
+    def _initial_graph_path(self) -> Path:
+        session_path = self._session_graph_path()
+        if session_path is not None:
+            return session_path
+        saved_files = self._graph_slot_files()
+        if saved_files:
+            return random.choice(saved_files)
+        return DEFAULT_GRAPH_PATH
+
+    def _session_graph_path(self) -> Path | None:
+        if not SESSION_STATE_PATH.exists():
+            return None
         try:
-            self.context.storage_service.save_graph(
-                self.context.graph, DEFAULT_GRAPH_PATH
+            data = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        slot_name = str(data.get("current_slot", "")).strip()
+        if not slot_name:
+            return None
+        path = SAVE_GRAPH_DIR / Path(slot_name).name
+        if path.exists():
+            return path
+        return None
+
+    def _graph_slot_files(self) -> list[Path]:
+        SAVE_GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+        return sorted(SAVE_GRAPH_DIR.glob("*.json"), key=lambda path: path.name.lower())
+
+    def _graph_slot_path(self, name: str) -> Path:
+        slot_name = Path(name.strip()).name
+        if not slot_name:
+            raise PetFlowError("Save slot name cannot be empty.")
+        if Path(slot_name).suffix.lower() != ".json":
+            slot_name = f"{slot_name}.json"
+        return SAVE_GRAPH_DIR / slot_name
+
+    def _current_graph_slot_name(self) -> str | None:
+        if self.current_graph_path is None:
+            return None
+        try:
+            current_path = self.current_graph_path.resolve()
+            save_dir = SAVE_GRAPH_DIR.resolve()
+        except OSError:
+            return None
+        if current_path.parent != save_dir or not current_path.exists():
+            return None
+        return current_path.name
+
+    def _ask_graph_slot_path(self, mode: str) -> Path | None:
+        SAVE_GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+        files = self._graph_slot_files()
+        is_save = mode == "save"
+        current_slot_name = self._current_graph_slot_name()
+        title = "Save Graph Slot" if is_save else "Load Graph Slot"
+        action_label = "Save" if is_save else "Load"
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.configure(bg="#FFFFFF")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.geometry("360x420")
+        result: dict[str, Path | None] = {"path": None}
+
+        body = tk.Frame(dialog, bg="#FFFFFF", padx=18, pady=18)
+        body.pack(fill="both", expand=True)
+        tk.Label(
+            body,
+            text=title,
+            bg="#FFFFFF",
+            fg="#111827",
+            font=(self.ui_font_family, 15, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            body,
+            text="Choose an existing column or type a new one.",
+            bg="#FFFFFF",
+            fg="#64748B",
+            font=(self.ui_font_family, 9),
+        ).pack(anchor="w", pady=(4, 12))
+
+        name_var = tk.StringVar(
+            value=(
+                current_slot_name
+                or (files[0].name if files else DEFAULT_GRAPH_PATH.name)
             )
-            self._set_status(f"Saved: {DEFAULT_GRAPH_PATH.name}")
+        )
+        listbox = tk.Listbox(
+            body,
+            height=10,
+            bg="#F8FAFC",
+            fg="#111827",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#E5E7EB",
+            selectbackground="#DBEAFE",
+            selectforeground="#111827",
+            font=(self.ui_font_family, 10),
+        )
+        listbox.pack(fill="both", expand=True)
+
+        def refresh_slot_list(selected_name: str | None = None) -> None:
+            nonlocal files
+            files = self._graph_slot_files()
+            listbox.delete(0, tk.END)
+            for path in files:
+                listbox.insert(tk.END, path.name)
+            if not files:
+                name_var.set(DEFAULT_GRAPH_PATH.name)
+                return
+            names = [path.name for path in files]
+            index = names.index(selected_name) if selected_name in names else 0
+            listbox.selection_set(index)
+            listbox.see(index)
+            name_var.set(names[index])
+
+        refresh_slot_list(current_slot_name or (files[0].name if files else None))
+
+        def sync_selection(_event: tk.Event | None = None) -> None:
+            selection = listbox.curselection()
+            if selection:
+                name_var.set(str(listbox.get(selection[0])))
+
+        listbox.bind("<<ListboxSelect>>", sync_selection)
+        listbox.bind("<Double-Button-1>", lambda _event: confirm())
+
+        tk.Label(
+            body,
+            text="Column name",
+            bg="#FFFFFF",
+            fg="#64748B",
+            font=(self.ui_font_family, 9, "bold"),
+        ).pack(anchor="w", pady=(12, 4))
+        name_entry = tk.Entry(
+            body,
+            textvariable=name_var,
+            bg="#F8FAFC",
+            fg="#111827",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#E5E7EB",
+            insertbackground="#111827",
+            font=(self.ui_font_family, 10),
+        )
+        name_entry.pack(fill="x", ipady=6)
+        name_entry.bind("<Return>", lambda _event: confirm())
+        if is_save:
+            name_entry.focus_set()
+
+        actions = tk.Frame(body, bg="#FFFFFF")
+        actions.pack(fill="x", pady=(16, 0))
+
+        def cancel() -> None:
+            dialog.destroy()
+
+        def confirm() -> None:
+            try:
+                path = self._graph_slot_path(name_var.get())
+            except PetFlowError as exc:
+                messagebox.showerror(title, str(exc), parent=dialog)
+                return
+            if not is_save and not path.exists():
+                messagebox.showinfo(
+                    title,
+                    "Choose an existing saved column.",
+                    parent=dialog,
+                )
+                return
+            result["path"] = path
+            dialog.destroy()
+
+        def delete_selected_slot() -> None:
+            try:
+                path = self._graph_slot_path(name_var.get())
+            except PetFlowError as exc:
+                messagebox.showerror(title, str(exc), parent=dialog)
+                return
+            if not path.exists():
+                messagebox.showinfo(
+                    title,
+                    "Choose an existing saved column to delete.",
+                    parent=dialog,
+                )
+                return
+            confirmed = messagebox.askyesno(
+                "Delete saved graph",
+                f"Delete saved graph '{path.name}'?",
+                parent=dialog,
+            )
+            if not confirmed:
+                return
+            try:
+                path.unlink()
+            except OSError as exc:
+                messagebox.showerror(
+                    "Delete failed",
+                    f"Could not delete {path.name}: {exc}",
+                    parent=dialog,
+                )
+                return
+            if self.current_graph_path == path:
+                self.current_graph_path = None
+            refresh_slot_list()
+            self._refresh_agenda()
+
+        tk.Button(
+            actions,
+            text="Delete",
+            command=delete_selected_slot,
+            relief="flat",
+            padx=12,
+            pady=7,
+            bg="#FEE2E2",
+            fg="#B91C1C",
+            activebackground="#FECACA",
+            activeforeground="#991B1B",
+        ).pack(side="left")
+        tk.Button(
+            actions,
+            text="Cancel",
+            command=cancel,
+            relief="flat",
+            padx=12,
+            pady=7,
+        ).pack(side="right", padx=(8, 0))
+        tk.Button(
+            actions,
+            text=action_label,
+            command=confirm,
+            relief="flat",
+            padx=14,
+            pady=7,
+            bg="#2563EB",
+            fg="#FFFFFF",
+            activebackground="#1D4ED8",
+            activeforeground="#FFFFFF",
+        ).pack(side="right")
+
+        self.root.wait_window(dialog)
+        return result["path"]
+
+    def save_graph(self) -> None:
+        path = self._ask_graph_slot_path("save")
+        if path is None:
+            return
+        try:
+            self.context.storage_service.save_graph(self.context.graph, path)
+            self.current_graph_path = path
+            self._set_status(f"Saved: {Path(path).name}")
+            self._refresh_agenda()
         except PetFlowError as exc:
             messagebox.showerror("Save failed", str(exc), parent=self.root)
 
     def load_graph(self) -> None:
+        path = self._ask_graph_slot_path("load")
+        if path is None:
+            return
         try:
-            graph = self.context.storage_service.load_graph(DEFAULT_GRAPH_PATH)
+            graph = self.context.storage_service.load_graph(path)
+            self.current_graph_path = path
             self.context = AppContext.create(graph)
             self._dark_mode = self.context.graph.workspace.theme == "dark"
             if self.inspector_panel is not None:
@@ -816,37 +1083,10 @@ class MainWindow:
             self._refresh_focus_chip()
             self._update_recommendation_label()
             self._sync_pet_to_recommendation()
-            self._set_status(f"Loaded: {DEFAULT_GRAPH_PATH.name}")
+            self._set_status(f"Loaded: {Path(path).name}")
             self.root.after_idle(self.fit_view)
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
-
-    def load_sample_graph(self) -> None:
-        try:
-            sample_path = DEFAULT_GRAPH_PATH.parent / "sample_graph.json"
-            graph = self.context.storage_service.load_graph(sample_path)
-            self.context = AppContext.create(graph)
-            self._dark_mode = self.context.graph.workspace.theme == "dark"
-            if self.inspector_panel is not None:
-                self.inspector_panel.set_context(self.context)
-            self.canvas.set_context(self.context)
-            if self.context.graph.workspace.current_node_id:
-                self.canvas.select_node(self.context.graph.workspace.current_node_id)
-            self._refresh_agenda(preserve_scroll=False)
-            self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
-            self.focus_started_at = (
-                datetime.now() if self.context.graph.workspace.focus_mode else None
-            )
-            self._style_focus_button()
-            self._apply_theme()
-            self._refresh_focus_chip()
-            self._update_recommendation_label()
-            self._sync_pet_to_recommendation()
-            self._set_status("Loaded sample graph")
-            self.root.after_idle(self.fit_view)
-            self.root.after(120, self.canvas.play_reveal)
-        except PetFlowError as exc:
-            messagebox.showerror("Sample load failed", str(exc), parent=self.root)
 
     def layout_graph(self) -> None:
         self.context.graph_layout_service.apply_grid_layout(self.context.graph_service)
@@ -875,7 +1115,7 @@ class MainWindow:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
             self.recommendation_var.set("Suggested next checkpoint: No checkpoint available")
-            self.recommendation_detail_var.set("Load demo or generate a mission map to begin.")
+            self.recommendation_detail_var.set("Create a node to begin.")
             messagebox.showinfo("Recommend Next", "No checkpoint available.", parent=self.root)
             return
         reason = self.context.recommendation_engine.recommend_reason(
@@ -904,10 +1144,11 @@ class MainWindow:
         if dialog.result is None:
             return
         if dialog.created_node_ids:
-            self.context.graph_layout_service.apply_subset_grid_layout(
-                self.context.graph_service,
-                dialog.created_node_ids,
-            )
+            if not dialog.layout_requested:
+                self.context.graph_layout_service.apply_subset_grid_layout(
+                    self.context.graph_service,
+                    dialog.created_node_ids,
+                )
             self.canvas.select_node(dialog.created_node_ids[0])
         self.canvas.redraw()
         if dialog.created_node_ids:
@@ -918,7 +1159,22 @@ class MainWindow:
         self._refresh_agenda()
         self._update_recommendation_label()
         self._sync_pet_to_recommendation()
-        self._set_status("Mission map applied")
+        status_parts: list[str] = []
+        if dialog.created_node_ids:
+            status_parts.append(f"{len(dialog.created_node_ids)} added")
+        if dialog.deleted_node_ids:
+            status_parts.append(f"{len(dialog.deleted_node_ids)} deleted")
+        if dialog.updated_node_ids:
+            status_parts.append(f"{len(dialog.updated_node_ids)} updated")
+        if dialog.added_edge_ids:
+            status_parts.append(f"{len(dialog.added_edge_ids)} edges")
+        if dialog.layout_requested:
+            status_parts.append("layout refreshed")
+        self._set_status(
+            "Agent plan applied"
+            if not status_parts
+            else f"Agent plan applied: {', '.join(status_parts)}"
+        )
         self.root.after_idle(self.fit_view)
 
     def open_settings_dialog(self) -> None:
@@ -1031,7 +1287,7 @@ class MainWindow:
         node = self.context.recommendation_engine.recommend_next(self.context.graph)
         if node is None:
             self.recommendation_var.set("Suggested next checkpoint: No checkpoint available")
-            self.recommendation_detail_var.set("Load demo or generate a mission map to begin.")
+            self.recommendation_detail_var.set("Create a node to begin.")
             return
         reason = self.context.recommendation_engine.recommend_reason(
             self.context.graph,
@@ -1050,11 +1306,40 @@ class MainWindow:
             except (AttributeError, tk.TclError, IndexError):
                 scroll_fraction = 0.0
         self.agenda_panel.agenda_service = self.context.agenda_service
-        self.agenda_panel.refresh(self.context.graph)
+        self.agenda_panel.refresh(
+            self.context.graph,
+            saved_graphs=self._saved_graph_task_groups(),
+        )
         if self._dark_mode:
             self._apply_current_theme_to(self.agenda_panel)
         if preserve_scroll:
             self.root.after_idle(lambda: self._restore_agenda_scroll(scroll_fraction))
+
+    def _saved_graph_task_groups(self) -> list[SavedGraphTasks]:
+        groups: list[SavedGraphTasks] = []
+        for path in self._graph_slot_files():
+            if self.current_graph_path == path:
+                continue
+            try:
+                graph = self.context.storage_service.load_graph(path)
+            except PetFlowError:
+                continue
+            nodes = tuple(
+                sorted(
+                    (
+                        node
+                        for node in graph.nodes.values()
+                        if node.type != NodeType.RESOURCE
+                    ),
+                    key=lambda node: (
+                        node.status.value == NodeStatus.DONE.value,
+                        -node.priority,
+                        node.title.casefold(),
+                    ),
+                )
+            )
+            groups.append(SavedGraphTasks(name=path.name, nodes=nodes))
+        return groups
 
     def _restore_agenda_scroll(self, fraction: float) -> None:
         if self.agenda_panel is None:
@@ -1262,16 +1547,21 @@ class MainWindow:
             self._set_status("Companion answered")
             return
         try:
-            created = AgentExecutor(self.context.graph_service).apply_graph_proposal(
-                proposal
+            executor = AgentExecutor(
+                self.context.graph_service,
+                layout_service=self.context.graph_layout_service,
             )
+            created = executor.apply_graph_proposal(proposal)
         except PetFlowError as exc:
             self.pet_panel.add_message("Pet", f"The proposed flow was invalid: {exc}")
             self.context.graph.pet.state = PetStateType.ANGRY
             self.context.graph.pet.speech = str(exc)
             self._render_pet()
             return
-        self.context.graph_layout_service.apply_grid_layout(self.context.graph_service)
+        if created and not executor.last_layout_requested:
+            self.context.graph_layout_service.apply_grid_layout(
+                self.context.graph_service
+            )
         recommended = self.context.recommendation_engine.recommend_next(
             self.context.graph
         )
@@ -1281,15 +1571,26 @@ class MainWindow:
             next_text = f" First checkpoint: {recommended.title}."
         else:
             next_text = ""
+        deleted_count = len(executor.last_deleted_node_ids)
+        updated_count = len(executor.last_updated_node_ids)
+        edge_count = len(executor.last_added_edge_ids)
+        layout_text = " Layout refreshed." if executor.last_layout_requested else ""
         self.pet_panel.add_message(
             "Pet",
-            f"Mission map updated with {len(created)} checkpoints.{next_text}",
+            (
+                f"Agent plan updated with {len(created)} added, "
+                f"{deleted_count} deleted, {updated_count} updated, "
+                f"{edge_count} edges.{next_text}{layout_text}"
+            ),
         )
         self.canvas.redraw()
         self._refresh_agenda()
         self._update_recommendation_label()
         self._render_pet()
-        self._set_status(f"Mission map updated: {len(created)} checkpoints")
+        self._set_status(
+            f"Agent plan updated: {len(created)} added, "
+            f"{deleted_count} deleted, {updated_count} updated, {edge_count} edges"
+        )
         self.root.after_idle(self.fit_view)
 
     def _set_status(self, message: str) -> None:
@@ -1348,5 +1649,23 @@ class MainWindow:
             return 120.0 + len(primary) * 250.0, 120.0
         return 120.0 + len(primary) * 250.0, 120.0
 
+    def _save_session_state(self) -> None:
+        slot_name = self._current_graph_slot_name() or ""
+        try:
+            SESSION_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SESSION_STATE_PATH.write_text(
+                json.dumps({"current_slot": slot_name}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+
+    def _on_close(self) -> None:
+        self._save_session_state()
+        self.root.destroy()
+
     def run(self) -> None:
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        finally:
+            self._save_session_state()

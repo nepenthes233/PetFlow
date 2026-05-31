@@ -236,6 +236,9 @@ class Node:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Node":
+        legacy_routine = data.get("routine")
+        if not isinstance(legacy_routine, dict):
+            legacy_routine = {}
         return cls(
             id=data["id"],
             type=_coerce_enum(NodeType, data.get("type"), NodeType.TASK),
@@ -254,13 +257,25 @@ class Node:
             tags=list(data.get("tags", [])),
             attachments=list(data.get("attachments", [])),
             repeat_type=_coerce_enum(
-                RepeatType, data.get("repeat_type"), RepeatType.NONE
+                RepeatType,
+                data.get("repeat_type", legacy_routine.get("recurrence")),
+                RepeatType.NONE,
             ),
             repeat_days=list(data.get("repeat_days", [])),
-            repeat_interval=int(data.get("repeat_interval", 1)),
-            last_completed_at=data.get("last_completed_at"),
-            next_due_at=data.get("next_due_at"),
-            streak=int(data.get("streak", 0)),
+            repeat_interval=int(
+                data.get(
+                    "repeat_interval",
+                    legacy_routine.get(
+                        "interval_days",
+                        legacy_routine.get("interval", 1),
+                    ),
+                )
+            ),
+            last_completed_at=data.get(
+                "last_completed_at", legacy_routine.get("last_completed_at")
+            ),
+            next_due_at=data.get("next_due_at", legacy_routine.get("next_due_at")),
+            streak=int(data.get("streak", legacy_routine.get("streak", 0))),
             resource_type=_coerce_enum(
                 ResourceType, data.get("resource_type"), ResourceType.URL
             ),
@@ -307,4 +322,3 @@ class Edge:
             weight=float(data.get("weight", 1.0)),
             metadata=dict(data.get("metadata", {})),
         )
-

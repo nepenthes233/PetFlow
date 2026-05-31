@@ -266,6 +266,15 @@ class GraphService:
 
     def delete_node(self, node_id: str) -> None:
         self.graph.remove_node(node_id)
+        if self.graph.workspace.current_node_id == node_id:
+            self.graph.workspace.current_node_id = None
+        self.graph.workspace.selected_node_ids = [
+            selected_id
+            for selected_id in self.graph.workspace.selected_node_ids
+            if selected_id != node_id
+        ]
+        if self.graph.pet.current_node_id == node_id:
+            self.graph.pet.current_node_id = None
         self._publish(EventType.NODE_REMOVED, {"node_id": node_id})
 
     def create_edge(
