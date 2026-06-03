@@ -270,6 +270,19 @@ class AgentWorkflowTest(unittest.TestCase):
                 }
             )
 
+    def test_default_validator_accepts_larger_proposals(self) -> None:
+        proposal = AgentProposalValidator().validate(
+            {
+                "nodes": [
+                    {"id": f"node_{index}", "title": f"Task {index}"}
+                    for index in range(1, 19)
+                ],
+                "edges": [],
+            }
+        )
+
+        self.assertEqual(len(proposal["nodes"]), 18)
+
     def test_mock_client_returns_graph_proposal(self) -> None:
         client = AgentClient(mock_mode=True)
 

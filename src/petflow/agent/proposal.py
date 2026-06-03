@@ -16,7 +16,7 @@ from petflow.domain.exceptions import GraphValidationError
 
 @dataclass(slots=True)
 class AgentProposalValidator:
-    max_nodes: int = 12
+    max_nodes: int = 24
     _ENUM_ALIASES: ClassVar[dict[type, dict[str, str]]] = {
         NodeStatus: {
             "pending": NodeStatus.TODO.value,

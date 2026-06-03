@@ -44,7 +44,7 @@ class PromptBuilder:
     def build_graph_generation_prompt(self, user_goal: str) -> str:
         return (
             "Create a practical PetFlow task graph for the user's goal. "
-            "Use 3 to 10 nodes, arranged as a clear left-to-right workflow. "
+            "Use 3 to 20 nodes, arranged as a clear left-to-right workflow. "
             f"{self._PROPOSAL_SCHEMA}\n"
             f"User goal: {user_goal}"
         )
