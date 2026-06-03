@@ -262,6 +262,13 @@ def _draw_icon(name: str, fg: str, bg: str) -> Image.Image:
         rect((4, 3, 18, 19))
         fill_rect((7, 4, 15, 9))
         rect((7, 13, 15, 19), 1)
+    elif name == "savings":
+        rect((5, 4, 17, 9), 1)
+        rect((4, 9, 18, 14), 1)
+        rect((3, 14, 19, 19), 1)
+        line([(8, 7), (14, 7)], 1)
+        line([(8, 12), (14, 12)], 1)
+        line([(8, 17), (14, 17)], 1)
     elif name == "load":
         line([(3, 7), (8, 7), (10, 10), (19, 10), (17, 18), (4, 18), (3, 7)])
     elif name == "sample":
@@ -294,6 +301,11 @@ def _draw_icon(name: str, fg: str, bg: str) -> Image.Image:
         arc = xy((4, 4, 18, 18))
         draw.arc(arc, 35, 320, fill=fg, width=2 * scale)
         line([(6, 5), (4, 10), (9, 9)])
+    elif name == "refresh":
+        draw.arc(xy((4, 4, 18, 18)), 35, 210, fill=fg, width=2 * scale)
+        draw.arc(xy((4, 4, 18, 18)), 215, 390, fill=fg, width=2 * scale)
+        line([(5, 13), (4, 18), (9, 17)])
+        line([(17, 9), (18, 4), (13, 5)])
     elif name == "clipboard":
         rect((5, 5, 17, 19))
         rect((8, 3, 14, 7), 1)

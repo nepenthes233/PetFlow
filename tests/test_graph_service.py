@@ -245,7 +245,7 @@ class GraphServiceTest(unittest.TestCase):
         completed_at = datetime.fromisoformat(updated.last_completed_at)
         next_due_at = datetime.fromisoformat(updated.next_due_at)
         self.assertEqual((next_due_at - completed_at).days, 2)
-        self.assertEqual(updated.status, NodeStatus.TODO)
+        self.assertEqual(updated.status, NodeStatus.DONE)
 
     def test_repeated_task_completion_schedules_next_occurrence(self) -> None:
         context = AppContext.create()
@@ -257,7 +257,7 @@ class GraphServiceTest(unittest.TestCase):
 
         updated = context.graph_service.update_node_status(node.id, NodeStatus.DONE)
 
-        self.assertEqual(updated.status, NodeStatus.TODO)
+        self.assertEqual(updated.status, NodeStatus.DONE)
         self.assertIsNotNone(updated.next_due_at)
 
 

@@ -24,6 +24,7 @@ from petflow.config import (
 )
 from petflow.domain.enums import NodeStatus, NodeType, PetStateType
 from petflow.domain.exceptions import PetFlowError
+from petflow.domain.graph import GraphModel
 from petflow.system.clipboard_watcher import ClipboardWatcher
 from petflow.system.focus_monitor import FocusMonitor
 from petflow.ui.agent_dialog import AgentDialog
@@ -163,7 +164,8 @@ class MainWindow:
 
         self._separator(tools).pack(side="left", fill="y", padx=(0, 10), pady=5)
         for icon, tooltip, command in (
-            ("save", "Save graph", self.save_graph),
+            ("save", "Save current saving", self.save_graph),
+            ("savings", "Modify savings", self.modify_savings),
             ("load", "Load graph", self.load_graph),
             ("recommend", "Recommend next task", self.recommend_next),
         ):
@@ -314,6 +316,7 @@ class MainWindow:
             self._select_agenda_node,
             self.ui_font_family,
             self.toggle_agenda_panel,
+            self.refresh_agenda_panel,
         )
 
         self.canvas = GraphCanvas(
@@ -861,8 +864,8 @@ class MainWindow:
         files = self._graph_slot_files()
         is_save = mode == "save"
         current_slot_name = self._current_graph_slot_name()
-        title = "Save Graph Slot" if is_save else "Load Graph Slot"
-        action_label = "Save" if is_save else "Load"
+        title = "Modify Savings" if is_save else "Load Graph Slot"
+        action_label = "Load"
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.configure(bg="#FFFFFF")
@@ -883,7 +886,7 @@ class MainWindow:
         ).pack(anchor="w")
         tk.Label(
             body,
-            text="Choose an existing column or type a new one.",
+            text="Choose an existing saving to delete or type a new blank name.",
             bg="#FFFFFF",
             fg="#64748B",
             font=(self.ui_font_family, 9),
@@ -932,11 +935,12 @@ class MainWindow:
                 name_var.set(str(listbox.get(selection[0])))
 
         listbox.bind("<<ListboxSelect>>", sync_selection)
-        listbox.bind("<Double-Button-1>", lambda _event: confirm())
+        if not is_save:
+            listbox.bind("<Double-Button-1>", lambda _event: confirm())
 
         tk.Label(
             body,
-            text="Column name",
+            text="Saving name",
             bg="#FFFFFF",
             fg="#64748B",
             font=(self.ui_font_family, 9, "bold"),
@@ -953,7 +957,8 @@ class MainWindow:
             font=(self.ui_font_family, 10),
         )
         name_entry.pack(fill="x", ipady=6)
-        name_entry.bind("<Return>", lambda _event: confirm())
+        if not is_save:
+            name_entry.bind("<Return>", lambda _event: confirm())
         if is_save:
             name_entry.focus_set()
 
@@ -969,10 +974,10 @@ class MainWindow:
             except PetFlowError as exc:
                 messagebox.showerror(title, str(exc), parent=dialog)
                 return
-            if not is_save and not path.exists():
+            if not path.exists():
                 messagebox.showinfo(
                     title,
-                    "Choose an existing saved column.",
+                    "Choose an existing saved graph.",
                     parent=dialog,
                 )
                 return
@@ -1013,6 +1018,38 @@ class MainWindow:
             refresh_slot_list()
             self._refresh_agenda()
 
+        def create_blank_slot() -> None:
+            try:
+                path = self._graph_slot_path(name_var.get())
+            except PetFlowError as exc:
+                messagebox.showerror(title, str(exc), parent=dialog)
+                return
+            if path.exists():
+                confirmed = messagebox.askyesno(
+                    "Overwrite saved graph",
+                    f"Replace saved graph '{path.name}' with a blank graph?",
+                    parent=dialog,
+                )
+            else:
+                confirmed = messagebox.askyesno(
+                    "New blank graph",
+                    f"Create blank graph '{path.name}' and switch to it?",
+                    parent=dialog,
+                )
+            if not confirmed:
+                return
+            blank_graph = GraphModel()
+            blank_graph.metadata.name = path.stem
+            blank_graph.metadata.touch()
+            try:
+                self.context.storage_service.save_graph(blank_graph, path)
+            except PetFlowError as exc:
+                messagebox.showerror("Create blank graph failed", str(exc), parent=dialog)
+                return
+            self._activate_graph(blank_graph, path)
+            self._set_status(f"Created blank graph: {path.name}")
+            dialog.destroy()
+
         tk.Button(
             actions,
             text="Delete",
@@ -1025,6 +1062,19 @@ class MainWindow:
             activebackground="#FECACA",
             activeforeground="#991B1B",
         ).pack(side="left")
+        if is_save:
+            tk.Button(
+                actions,
+                text="New blank",
+                command=create_blank_slot,
+                relief="flat",
+                padx=12,
+                pady=7,
+                bg="#E0F2FE",
+                fg="#075985",
+                activebackground="#BAE6FD",
+                activeforeground="#0C4A6E",
+            ).pack(side="left", padx=(8, 0))
         tk.Button(
             actions,
             text="Cancel",
@@ -1033,33 +1083,37 @@ class MainWindow:
             padx=12,
             pady=7,
         ).pack(side="right", padx=(8, 0))
-        tk.Button(
-            actions,
-            text=action_label,
-            command=confirm,
-            relief="flat",
-            padx=14,
-            pady=7,
-            bg="#2563EB",
-            fg="#FFFFFF",
-            activebackground="#1D4ED8",
-            activeforeground="#FFFFFF",
-        ).pack(side="right")
+        if not is_save:
+            tk.Button(
+                actions,
+                text=action_label,
+                command=confirm,
+                relief="flat",
+                padx=14,
+                pady=7,
+                bg="#2563EB",
+                fg="#FFFFFF",
+                activebackground="#1D4ED8",
+                activeforeground="#FFFFFF",
+            ).pack(side="right")
 
         self.root.wait_window(dialog)
         return result["path"]
 
     def save_graph(self) -> None:
-        path = self._ask_graph_slot_path("save")
+        path = self.current_graph_path
         if path is None:
+            self.modify_savings()
             return
         try:
             self.context.storage_service.save_graph(self.context.graph, path)
-            self.current_graph_path = path
-            self._set_status(f"Saved: {Path(path).name}")
+            self._set_status(f"Saved changes: {Path(path).name}")
             self._refresh_agenda()
         except PetFlowError as exc:
             messagebox.showerror("Save failed", str(exc), parent=self.root)
+
+    def modify_savings(self) -> None:
+        self._ask_graph_slot_path("save")
 
     def load_graph(self) -> None:
         path = self._ask_graph_slot_path("load")
@@ -1067,26 +1121,29 @@ class MainWindow:
             return
         try:
             graph = self.context.storage_service.load_graph(path)
-            self.current_graph_path = path
-            self.context = AppContext.create(graph)
-            self._dark_mode = self.context.graph.workspace.theme == "dark"
-            if self.inspector_panel is not None:
-                self.inspector_panel.set_context(self.context)
-            self.canvas.set_context(self.context)
-            self._refresh_agenda(preserve_scroll=False)
-            self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
-            self.focus_started_at = (
-                datetime.now() if self.context.graph.workspace.focus_mode else None
-            )
-            self._style_focus_button()
-            self._apply_theme()
-            self._refresh_focus_chip()
-            self._update_recommendation_label()
-            self._sync_pet_to_recommendation()
+            self._activate_graph(graph, path)
             self._set_status(f"Loaded: {Path(path).name}")
-            self.root.after_idle(self.fit_view)
         except PetFlowError as exc:
             messagebox.showerror("Load failed", str(exc), parent=self.root)
+
+    def _activate_graph(self, graph: GraphModel, path: Path) -> None:
+        self.current_graph_path = path
+        self.context = AppContext.create(graph)
+        self._dark_mode = self.context.graph.workspace.theme == "dark"
+        if self.inspector_panel is not None:
+            self.inspector_panel.set_context(self.context)
+        self.canvas.set_context(self.context)
+        self._refresh_agenda(preserve_scroll=False)
+        self.focus_mode_var.set(self.context.graph.workspace.focus_mode)
+        self.focus_started_at = (
+            datetime.now() if self.context.graph.workspace.focus_mode else None
+        )
+        self._style_focus_button()
+        self._apply_theme()
+        self._refresh_focus_chip()
+        self._update_recommendation_label()
+        self._sync_pet_to_recommendation()
+        self.root.after_idle(self.fit_view)
 
     def layout_graph(self) -> None:
         self.context.graph_layout_service.apply_grid_layout(self.context.graph_service)
@@ -1314,6 +1371,10 @@ class MainWindow:
             self._apply_current_theme_to(self.agenda_panel)
         if preserve_scroll:
             self.root.after_idle(lambda: self._restore_agenda_scroll(scroll_fraction))
+
+    def refresh_agenda_panel(self) -> None:
+        self._refresh_agenda()
+        self._set_status("Schedule panel refreshed")
 
     def _saved_graph_task_groups(self) -> list[SavedGraphTasks]:
         groups: list[SavedGraphTasks] = []

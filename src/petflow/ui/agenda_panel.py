@@ -41,6 +41,7 @@ class AgendaPanel(tk.Frame):
         on_select_node: Callable[[str], None],
         font_family: str,
         on_collapse: Callable[[], None] | None = None,
+        on_refresh: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             master,
@@ -56,6 +57,7 @@ class AgendaPanel(tk.Frame):
         self.on_select_node = on_select_node
         self.font_family = font_family
         self.on_collapse = on_collapse
+        self.on_refresh = on_refresh
         self._expanded: set[date] = set()
         self._days: list[AgendaDay] = []
         self._saved_graphs: list[SavedGraphTasks] = []
@@ -76,7 +78,16 @@ class AgendaPanel(tk.Frame):
                 "hide",
                 "Hide schedule panel",
                 command=on_collapse,
+                size=30,
             ).pack(side="right")
+        if on_refresh is not None:
+            IconButton(
+                heading,
+                "refresh",
+                "Refresh schedule panel",
+                command=on_refresh,
+                size=30,
+            ).pack(side="right", padx=(0, 4))
         tk.Label(
             self,
             text="Next 7 days",

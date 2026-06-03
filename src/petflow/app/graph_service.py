@@ -238,7 +238,6 @@ class GraphService:
                     current.repeat_interval,
                 )
                 changes["next_due_at"] = next_due.isoformat() if next_due else None
-                changes["status"] = NodeStatus.TODO
         elif previous_status == NodeStatus.DONE:
             changes["completed_at"] = None
 
