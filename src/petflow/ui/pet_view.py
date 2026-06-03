@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageOps, ImageTk
 
-from petflow.config import ASSETS_DIR
 from petflow.domain.entities import PetState
 from petflow.domain.enums import PetStateType
+from petflow.services.mascot_service import MascotConfig, MascotService
 from petflow.ui.theme import BORDER, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY
 
 
@@ -19,15 +19,18 @@ class PetView:
         self,
         canvas: tk.Canvas,
         font_family: str = "TkDefaultFont",
+        mascot_id: str | None = None,
+        mascot_service: MascotService | None = None,
     ) -> None:
         self.canvas = canvas
         self.font_family = font_family
-        self._asset_paths = {
-            "idle": ASSETS_DIR / "mascot" / "copilot_idle.png",
-            "focused": ASSETS_DIR / "mascot" / "copilot_focused.png",
-            "complete": ASSETS_DIR / "mascot" / "copilot_complete.png",
-        }
+        self._mascot_service = mascot_service or MascotService()
+        self.mascot = self._mascot_service.load(mascot_id)
         self._image_cache: dict[str, ImageTk.PhotoImage | None] = {}
+
+    def set_mascot_id(self, mascot_id: str | None) -> None:
+        self.mascot = self._mascot_service.load(mascot_id)
+        self._image_cache.clear()
 
     def draw(self, pet: PetState, reaction: str | None = None) -> None:
         self.canvas.delete("pet")
@@ -99,15 +102,25 @@ class PetView:
         if asset_key in self._image_cache:
             return self._image_cache[asset_key]
 
-        path = self._asset_paths[asset_key]
-        if not path.exists():
+        path = self.mascot.asset_path(asset_key) if self.mascot is not None else None
+        if path is None or not path.exists():
             self._image_cache[asset_key] = None
             return None
 
-        image = Image.open(path).convert("RGBA").resize(self.MASCOT_SIZE, Image.Resampling.LANCZOS)
+        size = self.mascot.size if self.mascot is not None else self.MASCOT_SIZE
+        image = self._resize_mascot_image(Image.open(path).convert("RGBA"), size)
         photo = ImageTk.PhotoImage(image)
         self._image_cache[asset_key] = photo
         return photo
+
+    @staticmethod
+    def _resize_mascot_image(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+        resized = ImageOps.contain(image, size, Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+        x = (size[0] - resized.width) // 2
+        y = (size[1] - resized.height) // 2
+        canvas.alpha_composite(resized, (x, y))
+        return canvas
 
     @staticmethod
     def _asset_key_for_state(state: PetStateType) -> str:

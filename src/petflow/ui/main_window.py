@@ -1182,6 +1182,9 @@ class MainWindow:
         self.root.wait_window(dialog)
         if dialog.result is None:
             return
+        if self.pet_panel is not None:
+            self.pet_panel.set_mascot_id(dialog.result.mascot_id)
+            self._render_pet()
         self._set_status("Settings saved")
 
     def show_review(self) -> None:

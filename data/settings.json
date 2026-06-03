@@ -3,5 +3,6 @@
   "base_url": "https://api.deepseek.com",
   "model": "deepseek-chat",
   "wire_api": "chat_completions",
-  "mock_mode": false
+  "mock_mode": false,
+  "mascot_id": "anime_assistant"
 }
