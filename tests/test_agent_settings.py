@@ -16,6 +16,7 @@ class AgentSettingsTest(unittest.TestCase):
             model="demo-model",
             wire_api="responses",
             mock_mode=True,
+            mascot_id="anime_assistant",
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "settings.json"
@@ -28,6 +29,7 @@ class AgentSettingsTest(unittest.TestCase):
         self.assertEqual(loaded.model, "demo-model")
         self.assertEqual(loaded.wire_api, "responses")
         self.assertTrue(loaded.mock_mode)
+        self.assertEqual(loaded.mascot_id, "anime_assistant")
 
     def test_client_uses_settings(self) -> None:
         settings = AgentSettings(

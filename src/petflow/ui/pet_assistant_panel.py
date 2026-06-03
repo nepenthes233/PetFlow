@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 import tkinter as tk
 
+from petflow.agent.settings import AgentSettings
 from petflow.domain.entities import PetState
+from petflow.domain.exceptions import PetFlowError
 from petflow.ui.components import TextButton
 from petflow.ui.icon_button import IconButton
 from petflow.ui.pet_view import PetView
@@ -75,7 +77,11 @@ class PetAssistantPanel(tk.Frame):
             highlightthickness=0,
         )
         pet_canvas.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 4))
-        self.pet_view = PetView(pet_canvas, font_family=font_family)
+        self.pet_view = PetView(
+            pet_canvas,
+            font_family=font_family,
+            mascot_id=self._load_mascot_id(),
+        )
 
         tk.Label(
             self,
@@ -160,6 +166,16 @@ class PetAssistantPanel(tk.Frame):
 
     def render_pet(self, pet: PetState, reaction: str | None = None) -> None:
         self.pet_view.draw(pet, reaction)
+
+    def set_mascot_id(self, mascot_id: str) -> None:
+        self.pet_view.set_mascot_id(mascot_id)
+
+    @staticmethod
+    def _load_mascot_id() -> str | None:
+        try:
+            return AgentSettings.load().mascot_id
+        except PetFlowError:
+            return None
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy

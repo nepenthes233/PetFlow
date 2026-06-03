@@ -2,29 +2,42 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from PIL import Image, ImageOps, ImageTk
+
 from petflow.domain.entities import PetState
 from petflow.domain.enums import PetStateType
-from petflow.ui.theme import BORDER, PRIMARY, SURFACE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY
+from petflow.services.mascot_service import MascotConfig, MascotService
+from petflow.ui.theme import BORDER, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY
 
 
 class PetView:
     WIDTH = 260
-    HEIGHT = 118
+    HEIGHT = 132
+    MASCOT_SIZE = (88, 108)
 
     def __init__(
         self,
         canvas: tk.Canvas,
         font_family: str = "TkDefaultFont",
+        mascot_id: str | None = None,
+        mascot_service: MascotService | None = None,
     ) -> None:
         self.canvas = canvas
         self.font_family = font_family
+        self._mascot_service = mascot_service or MascotService()
+        self.mascot = self._mascot_service.load(mascot_id)
+        self._image_cache: dict[str, ImageTk.PhotoImage | None] = {}
+
+    def set_mascot_id(self, mascot_id: str | None) -> None:
+        self.mascot = self._mascot_service.load(mascot_id)
+        self._image_cache.clear()
 
     def draw(self, pet: PetState, reaction: str | None = None) -> None:
         self.canvas.delete("pet")
         if not pet.visible:
             return
         visual_state = self._visual_state(pet.state, reaction)
-        face_fill = self._fill_for_state(visual_state)
+        mascot_image = self._image_for_state(visual_state)
 
         self.canvas.create_text(
             0,
@@ -45,29 +58,77 @@ class PetView:
             TEXT_SECONDARY,
         )
 
-        self.canvas.create_oval(
-            0,
-            40,
-            44,
-            84,
-            fill=face_fill,
-            outline=BORDER,
-            width=1,
-            tags=("pet",),
-        )
-        self._draw_face(visual_state, reaction)
+        if mascot_image is not None:
+            self.canvas.create_image(
+                0,
+                22,
+                image=mascot_image,
+                anchor="nw",
+                tags=("pet",),
+            )
+        else:
+            face_fill = self._fill_for_state(visual_state)
+            self.canvas.create_oval(
+                0,
+                40,
+                44,
+                84,
+                fill=face_fill,
+                outline=BORDER,
+                width=1,
+                tags=("pet",),
+            )
+            self._draw_face(visual_state, reaction)
+
+        if visual_state == PetStateType.MOVE:
+            self._draw_motion_marks()
+        elif visual_state == PetStateType.HAPPY:
+            self._draw_sparkles()
 
         self.canvas.create_text(
-            58,
-            45,
+            102,
+            44,
             text=self._message(pet.state, reaction),
             anchor="nw",
             justify="left",
-            width=185,
+            width=145,
             fill=TEXT_PRIMARY,
             font=(self.font_family, 10),
             tags=("pet",),
         )
+
+    def _image_for_state(self, state: PetStateType) -> ImageTk.PhotoImage | None:
+        asset_key = self._asset_key_for_state(state)
+        if asset_key in self._image_cache:
+            return self._image_cache[asset_key]
+
+        path = self.mascot.asset_path(asset_key) if self.mascot is not None else None
+        if path is None or not path.exists():
+            self._image_cache[asset_key] = None
+            return None
+
+        size = self.mascot.size if self.mascot is not None else self.MASCOT_SIZE
+        image = self._resize_mascot_image(Image.open(path).convert("RGBA"), size)
+        photo = ImageTk.PhotoImage(image)
+        self._image_cache[asset_key] = photo
+        return photo
+
+    @staticmethod
+    def _resize_mascot_image(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+        resized = ImageOps.contain(image, size, Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+        x = (size[0] - resized.width) // 2
+        y = (size[1] - resized.height) // 2
+        canvas.alpha_composite(resized, (x, y))
+        return canvas
+
+    @staticmethod
+    def _asset_key_for_state(state: PetStateType) -> str:
+        if state == PetStateType.HAPPY:
+            return "complete"
+        if state in {PetStateType.MOVE, PetStateType.THINK}:
+            return "focused"
+        return "idle"
 
     def _draw_face(self, state: PetStateType, reaction: str | None) -> None:
         eye_y = 56
@@ -131,7 +192,7 @@ class PetView:
         )
 
     def _draw_sparkles(self) -> None:
-        for x, y in ((68, 48), (151, 56), (148, 91)):
+        for x, y in ((72, 44), (92, 64), (84, 92)):
             self.canvas.create_line(
                 x - 4, y, x + 4, y, fill="#F59E0B", width=2, tags=("pet",)
             )
@@ -140,11 +201,11 @@ class PetView:
             )
 
     def _draw_motion_marks(self) -> None:
-        for y, length in ((57, 13), (69, 18), (81, 11)):
+        for y, length in ((58, 14), (72, 20), (86, 12)):
             self.canvas.create_line(
-                57,
+                86,
                 y,
-                57 + length,
+                86 + length,
                 y,
                 fill="#93C5FD",
                 width=2,

@@ -1,0 +1,14 @@
+{
+  "id": "anime_assistant",
+  "name": "Anime Assistant",
+  "type": "image",
+  "size": [
+    88,
+    108
+  ],
+  "states": {
+    "idle": "idle.png",
+    "focused": "focused.png",
+    "complete": "complete.png"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "line_dog",
+  "name": "Line Dog",
+  "type": "image",
+  "size": [88, 108],
+  "states": {
+    "idle": "idle.png",
+    "focused": "focused.png",
+    "complete": "complete.png"
+  }
+}

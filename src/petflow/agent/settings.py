@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from petflow.config import DEFAULT_SETTINGS_PATH
+from petflow.config import DEFAULT_MASCOT_ID, DEFAULT_SETTINGS_PATH
 from petflow.domain.exceptions import RepositoryError
 
 
@@ -16,12 +16,14 @@ class AgentSettings:
     model: str = "gpt-4o-mini"
     wire_api: str = "chat_completions"
     mock_mode: bool = False
+    mascot_id: str = DEFAULT_MASCOT_ID
 
     def __post_init__(self) -> None:
         self.api_key = self.api_key.strip()
         self.base_url = self.base_url.strip().rstrip("/")
         self.model = self.model.strip()
         self.wire_api = self.wire_api.strip()
+        self.mascot_id = self.mascot_id.strip() or DEFAULT_MASCOT_ID
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_SETTINGS_PATH) -> "AgentSettings":
@@ -44,6 +46,7 @@ class AgentSettings:
             model=str(data.get("model", "gpt-4o-mini")),
             wire_api=str(data.get("wire_api", "chat_completions")),
             mock_mode=bool(data.get("mock_mode", False)),
+            mascot_id=str(data.get("mascot_id", DEFAULT_MASCOT_ID)),
         )
 
     def save(self, path: str | Path = DEFAULT_SETTINGS_PATH) -> None:
@@ -64,4 +67,5 @@ class AgentSettings:
             "model": self.model,
             "wire_api": self.wire_api,
             "mock_mode": self.mock_mode,
+            "mascot_id": self.mascot_id,
         }

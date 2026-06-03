@@ -6,6 +6,7 @@ from tkinter import messagebox, ttk
 from petflow.agent.agent_client import AgentClient
 from petflow.agent.settings import AgentSettings
 from petflow.domain.exceptions import PetFlowError
+from petflow.services.mascot_service import MascotConfig, MascotService
 
 
 class SettingsDialog(tk.Toplevel):
@@ -24,6 +25,11 @@ class SettingsDialog(tk.Toplevel):
         self._model_var = tk.StringVar(value=settings.model)
         self._wire_api_var = tk.StringVar(value=settings.wire_api)
         self._mock_mode_var = tk.BooleanVar(value=settings.mock_mode)
+        self._mascots = MascotService().list_configs()
+        self._mascot_labels = self._mascot_label_map(self._mascots)
+        self._mascot_var = tk.StringVar(
+            value=self._label_for_mascot_id(settings.mascot_id)
+        )
         self._error_var = tk.StringVar(value="")
 
         self._build_ui()
@@ -84,12 +90,23 @@ class SettingsDialog(tk.Toplevel):
             variable=self._mock_mode_var,
         ).grid(row=6, column=1, sticky="w", pady=(0, 8))
 
+        ttk.Label(body, text="Mascot Theme").grid(
+            row=7, column=0, sticky="w", pady=(0, 8)
+        )
+        ttk.Combobox(
+            body,
+            textvariable=self._mascot_var,
+            values=list(self._mascot_labels),
+            state="readonly",
+            width=46,
+        ).grid(row=7, column=1, sticky="ew", pady=(0, 8))
+
         ttk.Label(body, textvariable=self._error_var, foreground="#dc2626").grid(
-            row=7, column=0, columnspan=2, sticky="w"
+            row=8, column=0, columnspan=2, sticky="w"
         )
 
         actions = ttk.Frame(body)
-        actions.grid(row=8, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        actions.grid(row=9, column=0, columnspan=2, sticky="e", pady=(16, 0))
         ttk.Button(actions, text="Cancel", command=self._cancel).pack(
             side="left", padx=(0, 8)
         )
@@ -105,7 +122,21 @@ class SettingsDialog(tk.Toplevel):
             model=self._model_var.get().strip() or "gpt-4o-mini",
             wire_api=self._wire_api_var.get() or "chat_completions",
             mock_mode=bool(self._mock_mode_var.get()),
+            mascot_id=self._selected_mascot_id(),
         )
+
+    @staticmethod
+    def _mascot_label_map(configs: list[MascotConfig]) -> dict[str, str]:
+        return {f"{config.name} ({config.id})": config.id for config in configs}
+
+    def _label_for_mascot_id(self, mascot_id: str) -> str:
+        for label, config_id in self._mascot_labels.items():
+            if config_id == mascot_id:
+                return label
+        return next(iter(self._mascot_labels), "")
+
+    def _selected_mascot_id(self) -> str:
+        return self._mascot_labels.get(self._mascot_var.get(), "")
 
     def _use_deepseek_defaults(self) -> None:
         self._base_url_var.set("https://api.deepseek.com")
