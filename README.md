@@ -1,5 +1,10 @@
 # PetFlow
 
+录屏：https://disk.pku.edu.cn/link/AA341356985A3047D18684A34DD3E981A2
+文件名：演示.mp4
+有效期限：2026-08-05 14:13
+提取码：3UqC
+
 PetFlow is a Python desktop workflow manager built around a task graph, a 7-day agenda sidebar, and a right-side workspace for editing or companion chat.
 
 The app combines:
